@@ -12,9 +12,17 @@ from flask_jwt_extended import (
 from models import db, User, SavedWord
 from PIL import Image
 
+try:
+    from dotenv import load_dotenv
+    import pathlib, os as _os
+    load_dotenv(_os.path.join(pathlib.Path(__file__).parent, ".env"))
+except Exception:
+    pass
+    
 def ok_image_type(ct):
     return ct in ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
                   "application/octet-stream", None)
+
 
 def compress_to_jpeg_bytes(file_bytes: bytes, max_w: int = 640, quality: int = 72) -> bytes:
     img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
