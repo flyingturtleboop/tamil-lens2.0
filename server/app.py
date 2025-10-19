@@ -1,28 +1,26 @@
 # app.py
-from datetime import timedelta
+from datetime import timedelta, datetime, date
 import os, io, re, json
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+print(f"DEBUG: GEMINI_API_KEY = {os.environ.get('GEMINI_API_KEY')[:10]}..." if os.environ.get('GEMINI_API_KEY') else "DEBUG: NO KEY FOUND")
+
 from flask import Flask, request, jsonify, current_app
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     jwt_required, get_jwt_identity, set_refresh_cookies,
-    unset_jwt_cookies
+    unset_jwt_cookies, verify_jwt_in_request
 )
-from models import db, User, SavedWord
+from models import db, User, SavedWord, Achievement
 from PIL import Image
 
-try:
-    from dotenv import load_dotenv
-    import pathlib, os as _os
-    load_dotenv(_os.path.join(pathlib.Path(__file__).parent, ".env"))
-except Exception:
-    pass
-    
 def ok_image_type(ct):
     return ct in ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
                   "application/octet-stream", None)
-
 
 def compress_to_jpeg_bytes(file_bytes: bytes, max_w: int = 640, quality: int = 72) -> bytes:
     img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
@@ -69,6 +67,57 @@ TRANSLATE_JSON_PROMPT = (
     "{ \"tamil\": \"<Tamil>\", \"transliteration\": \"<ISO 15919>\", "
     "\"english\": \"<same english>\", \"partOfSpeech\": null, \"confidence\": 1.0 }"
 )
+
+def check_achievements(user):
+    """Check and unlock achievements"""
+    achievements_to_unlock = []
+    
+    # First scan
+    if user.total_scans == 1:
+        achievements_to_unlock.append("first_scan")
+    
+    # Word milestones
+    word_count = SavedWord.query.filter_by(user_id=user.id).count()
+    if word_count >= 10:
+        achievements_to_unlock.append("words_10")
+    if word_count >= 50:
+        achievements_to_unlock.append("words_50")
+    if word_count >= 100:
+        achievements_to_unlock.append("words_100")
+    if word_count >= 200:
+        achievements_to_unlock.append("words_200")
+    
+    # Streak milestones
+    if user.current_streak >= 3:
+        achievements_to_unlock.append("streak_3")
+    if user.current_streak >= 7:
+        achievements_to_unlock.append("streak_7")
+    if user.current_streak >= 14:
+        achievements_to_unlock.append("streak_14")
+    if user.current_streak >= 30:
+        achievements_to_unlock.append("streak_30")
+    
+    # Quiz milestones
+    if user.total_quizzes >= 5:
+        achievements_to_unlock.append("quiz_5")
+    if user.total_quizzes >= 10:
+        achievements_to_unlock.append("quiz_10")
+    if user.total_quizzes >= 25:
+        achievements_to_unlock.append("quiz_25")
+    
+    # Unlock new achievements
+    for achievement_type in achievements_to_unlock:
+        existing = Achievement.query.filter_by(
+            user_id=user.id, 
+            achievement_type=achievement_type
+        ).first()
+        
+        if not existing:
+            new_achievement = Achievement(
+                user_id=user.id,
+                achievement_type=achievement_type
+            )
+            db.session.add(new_achievement)
 
 def create_app():
     app = Flask(__name__)
@@ -141,6 +190,7 @@ def create_app():
     def healthz():
         return {"ok": True}, 200
 
+    # ========== AUTH ==========
     @app.post("/auth/register")
     def register():
         data = request.get_json(silent=True) or {}
@@ -209,6 +259,7 @@ def create_app():
         user = User.query.get(uid)
         return jsonify({"hello": (user.email if user else uid), "msg": "You have access."}), 200
 
+    # ========== WORD BANK ==========
     DEFAULT_BANK_COUNT = int(os.environ.get("DEFAULT_BANK_COUNT", "103"))
 
     @app.get("/api/bank")
@@ -223,10 +274,7 @@ def create_app():
                 .order_by(SavedWord.created_at.desc())
                 .limit(600).all()
             )
-            items = [
-                {"id": r.id, "english": r.english, "tamil": r.tamil, "transliteration": r.transliteration}
-                for r in rows
-            ]
+            items = [w.to_dict() for w in rows]
         return jsonify({
             "items": items,
             "myListCount": len(items),
@@ -256,7 +304,15 @@ def create_app():
             return jsonify({"status": "exists", "id": existed.id, "updated": updated}), 200
 
         row = SavedWord(user_id=uid, english=english, tamil=tamil, transliteration=translit)
-        db.session.add(row); db.session.commit()
+        db.session.add(row)
+        db.session.commit()
+        
+        # Check achievements
+        user = User.query.get(uid)
+        if user:
+            check_achievements(user)
+            db.session.commit()
+        
         return jsonify({"status": "added", "id": row.id}), 201
 
     @app.delete("/api/bank/<int:wid>")
@@ -266,9 +322,149 @@ def create_app():
         row = SavedWord.query.filter_by(id=wid, user_id=uid).first()
         if not row:
             return jsonify({"message": "not found"}), 404
-        db.session.delete(row); db.session.commit()
+        db.session.delete(row)
+        db.session.commit()
         return jsonify({"status": "deleted"}), 200
 
+    # ========== STREAK & STATS ==========
+    @app.get("/api/stats")
+    @jwt_required()
+    def get_stats():
+        uid = get_jwt_identity()
+        user = User.query.get(uid)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        
+        word_count = SavedWord.query.filter_by(user_id=uid).count()
+        achievements = Achievement.query.filter_by(user_id=uid).all()
+        
+        # Calculate accuracy from flashcard reviews
+        words_with_reviews = SavedWord.query.filter(
+            SavedWord.user_id == uid,
+            SavedWord.review_count > 0
+        ).all()
+        
+        total_reviews = sum(w.review_count for w in words_with_reviews)
+        total_correct = sum(w.correct_count for w in words_with_reviews)
+        accuracy = round((total_correct / total_reviews * 100) if total_reviews > 0 else 0)
+        
+        # Get words learned per week (last 12 weeks)
+        from sqlalchemy import func
+        weeks_data = db.session.query(
+            func.strftime('%Y-%W', SavedWord.created_at).label('week'),
+            func.count(SavedWord.id).label('count')
+        ).filter(
+            SavedWord.user_id == uid,
+            SavedWord.created_at >= datetime.utcnow() - timedelta(weeks=12)
+        ).group_by('week').order_by('week').all()
+        
+        weekly_progress = [{"week": w.week, "words": w.count} for w in weeks_data]
+        
+        return jsonify({
+            "currentStreak": user.current_streak,
+            "longestStreak": user.longest_streak,
+            "totalScans": user.total_scans,
+            "totalQuizzes": user.total_quizzes,
+            "totalWords": word_count,
+            "accuracy": accuracy,
+            "lastActivityDate": user.last_activity_date.isoformat() if user.last_activity_date else None,
+            "achievements": [a.to_dict() for a in achievements],
+            "weeklyProgress": weekly_progress
+        }), 200
+
+    @app.post("/api/activity/scan")
+    @jwt_required()
+    def log_scan():
+        uid = get_jwt_identity()
+        user = User.query.get(uid)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        
+        user.total_scans += 1
+        user.update_streak()
+        check_achievements(user)
+        db.session.commit()
+        
+        return jsonify({
+            "currentStreak": user.current_streak,
+            "totalScans": user.total_scans
+        }), 200
+
+    @app.post("/api/activity/quiz")
+    @jwt_required()
+    def log_quiz():
+        uid = get_jwt_identity()
+        user = User.query.get(uid)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        
+        user.total_quizzes += 1
+        user.update_streak()
+        check_achievements(user)
+        db.session.commit()
+        
+        return jsonify({
+            "currentStreak": user.current_streak,
+            "totalQuizzes": user.total_quizzes
+        }), 200
+
+    # ========== FLASHCARD REVIEW ==========
+    @app.get("/api/flashcards/due")
+    @jwt_required()
+    def get_due_flashcards():
+        uid = get_jwt_identity()
+        now = datetime.utcnow()
+        
+        words = SavedWord.query.filter(
+            SavedWord.user_id == uid,
+            db.or_(
+                SavedWord.next_review == None,
+                SavedWord.next_review <= now
+            )
+        ).order_by(SavedWord.difficulty.desc()).limit(20).all()
+        
+        return jsonify({
+            "flashcards": [w.to_dict() for w in words],
+            "total": len(words)
+        }), 200
+
+    @app.post("/api/flashcards/<int:word_id>/review")
+    @jwt_required()
+    def review_flashcard(word_id):
+        uid = get_jwt_identity()
+        data = request.get_json(silent=True) or {}
+        correct = data.get("correct", False)
+        
+        word = SavedWord.query.filter_by(id=word_id, user_id=uid).first()
+        if not word:
+            return jsonify({"message": "Word not found"}), 404
+        
+        word.review_count += 1
+        word.last_reviewed = datetime.utcnow()
+        
+        if correct:
+            word.correct_count += 1
+            if word.difficulty > 0:
+                word.difficulty -= 1
+            word.next_review = datetime.utcnow() + timedelta(days=2 ** (word.difficulty + 1))
+        else:
+            if word.difficulty < 3:
+                word.difficulty += 1
+            word.next_review = datetime.utcnow() + timedelta(hours=4)
+        
+        db.session.commit()
+        
+        user = User.query.get(uid)
+        if user:
+            user.update_streak()
+            db.session.commit()
+        
+        return jsonify({
+            "status": "reviewed",
+            "nextReview": word.next_review.isoformat() if word.next_review else None
+        }), 200
+
+    # ========== AI IDENTIFY ==========
     @app.post("/api/identify")
     def api_identify():
         genai_client = current_app.config.get("GENAI_CLIENT")
@@ -325,6 +521,20 @@ def create_app():
                 except Exception:
                     pass
 
+            # Log scan activity if authenticated
+            try:
+                verify_jwt_in_request(optional=True)
+                uid = get_jwt_identity()
+                if uid:
+                    user = User.query.get(uid)
+                    if user:
+                        user.total_scans += 1
+                        user.update_streak()
+                        check_achievements(user)
+                        db.session.commit()
+            except:
+                pass
+
             return jsonify({
                 "tamil": tamil,
                 "transliteration": translit,
@@ -336,6 +546,54 @@ def create_app():
         except Exception as e:
             print("[/api/identify ERROR]", e)
             return jsonify({"detail": f"Vision error: {e}"}), 502
+
+    # ========== AI TRANSLATE ==========
+    @app.post("/api/translate")
+    def api_translate():
+        genai_client = current_app.config.get("GENAI_CLIENT")
+        vision_model = current_app.config.get("GEMINI_VISION_MODEL", "gemini-2.0-flash")
+
+        if genai_client is None:
+            return jsonify({"detail": "Translation unavailable: GEMINI_API_KEY not set"}), 502
+
+        data = request.get_json(silent=True) or {}
+        text = (data.get("text") or "").strip()
+        
+        if not text:
+            return jsonify({"detail": "Missing 'text' field"}), 400
+
+        try:
+            from google.genai import types
+            resp = genai_client.models.generate_content(
+                model=vision_model,
+                contents=[
+                    types.Part.from_text(text=TRANSLATE_JSON_PROMPT),
+                    types.Part.from_text(text=f"English: {text}"),
+                ],
+                config=types.GenerateContentConfig(
+                    temperature=0.1, candidate_count=1, max_output_tokens=120
+                ),
+            )
+            
+            result = extract_json_loose(resp.text or "{}")
+            
+            tamil = (result.get("tamil") or "").strip()
+            translit = (result.get("transliteration") or "").strip()
+            english = (result.get("english") or text).strip()
+            
+            if not tamil:
+                return jsonify({"detail": "Translation failed - no Tamil output"}), 500
+            
+            return jsonify({
+                "tamil": tamil,
+                "transliteration": translit,
+                "english": english,
+                "confidence": 1.0
+            })
+
+        except Exception as e:
+            print("[/api/translate ERROR]", e)
+            return jsonify({"detail": f"Translation error: {e}"}), 502
 
     return app
 

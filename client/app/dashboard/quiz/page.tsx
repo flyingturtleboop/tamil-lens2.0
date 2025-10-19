@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Check, X, RotateCcw, Trophy, Volume2 } from 'lucide-react';
 
 type BankItem = { english: string; tamil: string; transliteration?: string };
 type Question = {
@@ -39,7 +40,7 @@ function getAccessToken(): string | null {
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
-    const j = (Math.random() * (i + 1)) | 0;
+    const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
@@ -124,7 +125,6 @@ export default function QuizPage() {
   const [qCount, setQCount] = useState(DEFAULT_COUNT);
   const [includeSaved, setIncludeSaved] = useState(true);
   const [savedCount, setSavedCount] = useState(0);
-  const [serverDefaultCount, setServerDefaultCount] = useState<number | null>(null);
 
   const [pool, setPool] = useState<BankItem[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -133,9 +133,7 @@ export default function QuizPage() {
   const [score, setScore] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [review, setReview] = useState<
-    { english: string; correct: string; picked: string | null }[]
-  >([]);
+  const [showAnswer, setShowAnswer] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -146,22 +144,15 @@ export default function QuizPage() {
         const server = await apiLoad();
         if (!mounted) return;
         setSavedCount(server.myListCount || 0);
-        setServerDefaultCount(server.defaultCount ?? DEFAULT_WORDS.length);
         const merged = includeSaved ? mergePool(defaults, server.items || []) : defaults;
         setPool(merged);
       } catch (e) {
         const local = lsLoad();
         if (!mounted) return;
         setSavedCount(local.length);
-        setServerDefaultCount(DEFAULT_WORDS.length);
         const merged = includeSaved ? mergePool(defaults, local) : defaults;
         setPool(merged);
-        setError('Using local words (server unavailable).');
-      }
-      const savedQ = localStorage.getItem('quiz_qcount');
-      if (mounted && savedQ) {
-        const n = parseInt(savedQ, 10);
-        if (!Number.isNaN(n)) setQCount(Math.min(Math.max(n, 5), 800));
+        setError('Using local words (server unavailable)');
       }
     })();
     return () => {
@@ -169,276 +160,309 @@ export default function QuizPage() {
     };
   }, [includeSaved]);
 
-  const startQuiz = () => {
-    if (pool.length < 4) {
-      alert('Not enough words to build options. Add more words to "My List" first.');
-      return;
+  const ping = useCallback((freq = 880, dur = 0.06, vol = 0.03) => {
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(vol, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + dur);
+    } catch (e) {
+      console.error('Audio error:', e);
     }
-    const q = buildQuiz(qCount, pool);
-    if (q.length === 0) {
-      alert('No valid questions could be generated. Please add more words.');
-      return;
-    }
-    setQuestions(q);
-    setIndex(0);
-    setSelected(null);
-    setScore(0);
-    setDone(false);
-    setReview([]);
-    setStarted(true);
-    localStorage.setItem('quiz_qcount', String(qCount));
-  };
+  }, []);
 
-  const current = questions[index];
-
-  const choose = (opt: string) => {
-    if (!current || selected) return;
-    setSelected(opt);
-    const correct = opt === current.correctTamil;
-    setScore((s) => s + (correct ? 1 : 0));
-    setReview((r) => [
-      ...r,
-      { english: current.english, correct: current.correctTamil, picked: opt },
-    ]);
-    setTimeout(() => {
-      const next = index + 1;
-      if (next >= questions.length) setDone(true);
-      else {
-        setIndex(next);
-        setSelected(null);
+  const speakTamil = useCallback((text?: string) => {
+    if (!text) return;
+    try {
+      const utter = new SpeechSynthesisUtterance(text);
+      const trySpeak = () => {
+        const voices = window.speechSynthesis.getVoices();
+        const ta = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith('ta'));
+        if (ta) utter.voice = ta;
+        utter.lang = (ta && ta.lang) || 'ta-IN';
+        utter.rate = 0.9;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utter);
+      };
+      const voices = window.speechSynthesis.getVoices();
+      if (!voices?.length) {
+        const onVoices = () => {
+          trySpeak();
+          window.speechSynthesis.removeEventListener('voiceschanged', onVoices);
+        };
+        window.speechSynthesis.addEventListener('voiceschanged', onVoices);
+        setTimeout(trySpeak, 300);
+      } else {
+        trySpeak();
       }
-    }, 650);
-  };
+    } catch (e) {
+      console.error('Speech synthesis error:', e);
+    }
+  }, []);
 
-  const reset = () => {
-    setStarted(false);
-    setQuestions([]);
+  const startQuiz = () => {
+    if (pool.length === 0) {
+      alert('No words available. Please add some words first!');
+      return;
+    }
+    const qs = buildQuiz(qCount, pool);
+    setQuestions(qs);
     setIndex(0);
-    setSelected(null);
     setScore(0);
+    setSelected(null);
     setDone(false);
-    setReview([]);
+    setShowAnswer(false);
+    setStarted(true);
+    ping(660, 0.09, 0.03);
   };
 
-  const pct = useMemo(
-    () =>
-      questions.length > 0
-        ? Math.round(((index + (selected ? 1 : 0)) / questions.length) * 100)
-        : 0,
-    [index, selected, questions.length]
-  );
+  const handleSelect = (option: string) => {
+    if (selected) return;
+    setSelected(option);
+    setShowAnswer(true);
+    
+    const correct = option === questions[index].correctTamil;
+    if (correct) {
+      setScore(score + 1);
+      ping(880, 0.08, 0.04);
+    } else {
+      ping(420, 0.08, 0.04);
+    }
+  };
 
-  const defaultCountForDisplay = serverDefaultCount ?? DEFAULT_WORDS.length;
+  const handleNext = () => {
+    if (index < questions.length - 1) {
+      setIndex(index + 1);
+      setSelected(null);
+      setShowAnswer(false);
+      ping(520, 0.05, 0.02);
+    } else {
+      setDone(true);
+      ping(990, 0.12, 0.05);
+    }
+  };
 
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">Practice Quiz</h1>
+  const restart = () => {
+    setStarted(false);
+    setDone(false);
+    setIndex(0);
+    setScore(0);
+    setSelected(null);
+    setShowAnswer(false);
+    ping(660, 0.09, 0.03);
+  };
 
-      {!started && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6">
-          <div className="bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-4">
-            <p className="text-slate-700">
-              Choose the correct <span className="font-bold text-violet-700">Tamil</span> word for each{' '}
-              <span className="font-bold text-violet-700">English</span> word shown.
-            </p>
-          </div>
+  if (!started) {
+    return (
+      <div className="min-h-screen p-6">
+        <div className="max-w-2xl mx-auto">
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Practice Quiz</h1>
+          <p className="text-slate-600 mb-8">
+            Choose the correct <span className="font-semibold text-purple-600">Tamil</span> word for each{' '}
+            <span className="font-semibold text-blue-600">English</span> word shown.
+          </p>
 
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-4">
-              <label className="text-slate-700 font-medium">Number of questions</label>
+          {error && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700 mb-6">
+              ⚠️ {error}
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8 space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-3">
+                Number of questions
+              </label>
               <select
                 value={qCount}
-                onChange={(e) =>
-                  setQCount(Math.min(Math.max(parseInt(e.target.value, 10), 5), 800))
-                }
-                className="rounded-lg border-2 border-slate-300 px-4 py-2 focus:border-cyan-500 focus:outline-none"
+                onChange={(e) => setQCount(parseInt(e.target.value))}
+                className="w-full px-4 py-3 rounded-xl border-2 border-slate-300 focus:border-cyan-500 focus:outline-none text-slate-900"
               >
-                {[10, 15, 20, 25, 30, 40, 50].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
+                <option value={5}>5 questions</option>
+                <option value={10}>10 questions</option>
+                <option value={15}>15 questions</option>
+                <option value={20}>20 questions</option>
               </select>
             </div>
 
-            <label className="inline-flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all cursor-pointer">
-              <input
-                type="checkbox"
-                className="w-5 h-5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                checked={includeSaved}
-                onChange={(e) => setIncludeSaved(e.target.checked)}
-              />
-              <div className="flex-1">
-                <div className="font-medium text-slate-900">Include "My List" words</div>
-                <div className="text-sm text-slate-600">
-                  Combine your saved words with default vocabulary
+            <div className="bg-gradient-to-r from-cyan-50 to-teal-50 rounded-xl p-4 border border-cyan-200">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeSaved}
+                  onChange={(e) => setIncludeSaved(e.target.checked)}
+                  className="w-5 h-5 text-cyan-500 rounded mt-0.5"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-slate-900">Include "My List" words</div>
+                  <div className="text-sm text-slate-600">
+                    Combine your saved words with default vocabulary
+                  </div>
+                  <div className="text-sm text-cyan-600 font-medium mt-1">
+                    {savedCount} saved word{savedCount !== 1 ? 's' : ''}
+                  </div>
                 </div>
-              </div>
-              <div className="bg-cyan-100 text-cyan-700 rounded-full px-3 py-1 text-sm font-medium">
-                {savedCount} words
-              </div>
-            </label>
-          </div>
-
-          <div className="flex items-center justify-between pt-2">
-            <div className="text-sm text-slate-500">
-              Default bank: {defaultCountForDisplay} • My List: {savedCount}
+              </label>
             </div>
+
+            <div className="text-sm text-slate-600 bg-slate-50 rounded-xl p-4">
+              <div className="font-medium text-slate-700 mb-1">Quiz Pool:</div>
+              Default bank: {DEFAULT_WORDS.length} • My List: {savedCount}
+              {!includeSaved && ' (disabled)'}
+            </div>
+
             <button
               onClick={startQuiz}
-              disabled={pool.length < 4}
-              className={`px-8 py-3 rounded-full font-bold text-white transition-all ${
-                pool.length < 4
-                  ? 'bg-slate-400 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-cyan-500 to-teal-500 hover:shadow-lg hover:scale-105 active:scale-95'
-              }`}
+              disabled={pool.length === 0}
+              className="w-full px-8 py-4 bg-gradient-to-r from-cyan-500 to-teal-500 text-white rounded-xl font-bold text-lg hover:shadow-lg transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               Start Quiz
             </button>
           </div>
-
-          {error && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
-              {error}
-            </div>
-          )}
-          {pool.length < 4 && (
-            <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-sm text-rose-700">
-              You need at least 4 words to generate choices. Add more to "My List" on the Scan page.
-            </div>
-          )}
         </div>
-      )}
+      </div>
+    );
+  }
 
-      {started && !done && current && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6">
-          <div>
-            <div className="flex justify-between items-center mb-3">
-              <span className="text-sm text-slate-600">
-                Question <span className="font-bold text-cyan-600">{index + 1}</span>/{questions.length}
-              </span>
-              <span className="text-sm text-slate-600">
-                Score: <span className="font-bold text-cyan-600">{score}</span>
-              </span>
+  if (done) {
+    const percentage = Math.round((score / questions.length) * 100);
+    return (
+      <div className="min-h-screen p-6 flex items-center justify-center">
+        <div className="max-w-md w-full">
+          <div className="bg-white rounded-3xl shadow-2xl border-2 border-slate-200 p-8 text-center">
+            <div className="w-20 h-20 bg-gradient-to-br from-cyan-500 to-teal-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trophy className="w-10 h-10 text-white" />
             </div>
-            <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-cyan-500 to-teal-500 transition-all duration-300"
-                style={{ width: `${pct}%` }}
-              />
+            
+            <h2 className="text-3xl font-bold text-slate-900 mb-2">Quiz Complete!</h2>
+            <p className="text-slate-600 mb-8">Great job practicing your Tamil vocabulary</p>
+
+            <div className="bg-gradient-to-r from-cyan-50 to-teal-50 rounded-2xl p-6 mb-8">
+              <div className="text-6xl font-bold text-cyan-600 mb-2">{percentage}%</div>
+              <div className="text-lg text-slate-700">
+                {score} out of {questions.length} correct
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={restart}
+                className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-cyan-500 to-teal-500 text-white rounded-xl font-bold text-lg hover:shadow-lg transition-all hover:scale-105 active:scale-95"
+              >
+                <RotateCcw className="w-5 h-5" />
+                Try Again
+              </button>
+              <a
+                href="/dashboard"
+                className="w-full block text-center px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-all"
+              >
+                Back to Home
+              </a>
             </div>
           </div>
+        </div>
+      </div>
+    );
+  }
 
-          <div className="bg-gradient-to-r from-cyan-50 to-teal-50 border-2 border-cyan-200 rounded-2xl p-6 text-center">
-            <div className="text-sm uppercase tracking-wide text-cyan-600 mb-2 font-medium">English</div>
-            <div className="text-4xl font-bold text-slate-900">{current.english}</div>
-            {current.note && (
-              <div className="mt-3 text-sm text-slate-600 bg-white/60 rounded-full px-4 py-1.5 inline-block">
-                Hint: {current.note}
-              </div>
+  const q = questions[index];
+  const isCorrect = selected === q.correctTamil;
+
+  return (
+    <div className="min-h-screen p-6">
+      <div className="max-w-3xl mx-auto">
+        {/* Progress Bar */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between text-sm text-slate-600 mb-2">
+            <span>Question {index + 1} of {questions.length}</span>
+            <span>Score: {score}/{questions.length}</span>
+          </div>
+          <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-cyan-500 to-teal-500 transition-all duration-300"
+              style={{ width: `${((index + 1) / questions.length) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Question Card */}
+        <div className="bg-white rounded-3xl shadow-2xl border-2 border-slate-200 p-8 mb-6">
+          <div className="text-center mb-8">
+            <div className="text-sm font-medium text-slate-500 mb-3">What is the Tamil word for:</div>
+            <div className="text-5xl font-bold text-slate-900 mb-4">{q.english}</div>
+            {q.note && showAnswer && (
+              <div className="text-lg text-slate-500">{q.note}</div>
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {current.options.map((opt) => {
-              const picked = selected === opt;
-              const isCorrect = opt === current.correctTamil;
-              const show = !!selected;
-              const classes = [
-                'w-full text-left rounded-xl border-2 px-6 py-4 font-semibold transition-all',
-                show && isCorrect
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800 shadow-lg scale-105'
-                  : show && picked && !isCorrect
-                  ? 'border-rose-500 bg-rose-50 text-rose-800'
-                  : 'border-slate-300 hover:border-cyan-500 hover:bg-cyan-50 bg-white text-slate-900 hover:scale-102',
-              ].join(' ');
+          {/* Options */}
+          <div className="grid grid-cols-1 gap-3">
+            {q.options.map((opt, i) => {
+              const isSelected = selected === opt;
+              const isCorrectAnswer = opt === q.correctTamil;
+              
+              let bgColor = 'bg-white border-slate-300 hover:border-cyan-500 hover:bg-cyan-50';
+              if (showAnswer) {
+                if (isCorrectAnswer) {
+                  bgColor = 'bg-emerald-100 border-emerald-500';
+                } else if (isSelected && !isCorrect) {
+                  bgColor = 'bg-rose-100 border-rose-500';
+                } else {
+                  bgColor = 'bg-slate-50 border-slate-200';
+                }
+              } else if (isSelected) {
+                bgColor = 'bg-cyan-100 border-cyan-500';
+              }
+
               return (
-                <button key={opt} onClick={() => choose(opt)} className={classes} disabled={!!selected}>
-                  <span className="text-2xl">{opt}</span>
-                  {show && isCorrect && <span className="ml-2 text-emerald-600">✓</span>}
-                  {show && picked && !isCorrect && <span className="ml-2 text-rose-600">✗</span>}
+                <button
+                  key={i}
+                  onClick={() => handleSelect(opt)}
+                  disabled={!!selected}
+                  className={`flex items-center justify-between px-6 py-5 rounded-xl border-2 transition-all text-left ${bgColor} ${
+                    selected ? 'cursor-default' : 'cursor-pointer hover:scale-102'
+                  }`}
+                >
+                  <span className="text-3xl font-bold text-slate-900">{opt}</span>
+                  {showAnswer && (
+                    <span>
+                      {isCorrectAnswer && <Check className="w-7 h-7 text-emerald-600" />}
+                      {isSelected && !isCorrect && <X className="w-7 h-7 text-rose-600" />}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
         </div>
-      )}
 
-      {done && (
-        <div className="space-y-6">
-          <div className="bg-gradient-to-br from-cyan-500 to-teal-500 rounded-2xl p-8 text-white shadow-xl">
-            <div className="text-center">
-              <div className="text-6xl mb-3">
-                {score / questions.length >= 0.9 ? '🎉' : score / questions.length >= 0.7 ? '👏' : '💪'}
-              </div>
-              <h2 className="text-3xl font-bold mb-2">Quiz Complete!</h2>
-              <div className="text-5xl font-bold my-4">
-                {score}/{questions.length}
-              </div>
-              <div className="text-xl text-cyan-50">
-                {Math.round((score / questions.length) * 100)}% correct
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 p-6">
-            <h3 className="text-lg font-bold text-slate-900 mb-4">Review</h3>
-            <div className="space-y-2">
-              {review.map((r, i) => {
-                const correct = r.picked === r.correct;
-                return (
-                  <div
-                    key={i}
-                    className={`flex items-center gap-4 p-4 rounded-xl border-2 ${
-                      correct
-                        ? 'border-emerald-200 bg-emerald-50'
-                        : 'border-rose-200 bg-rose-50'
-                    }`}
-                  >
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white bg-slate-400">
-                      {i + 1}
-                    </div>
-                    <div className="flex-1 grid sm:grid-cols-3 gap-2">
-                      <div>
-                        <div className="text-xs text-slate-600">English</div>
-                        <div className="font-medium">{r.english}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-600">Your answer</div>
-                        <div className={`font-medium ${correct ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {r.picked ?? '—'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-600">Correct answer</div>
-                        <div className="font-bold text-slate-900">{r.correct}</div>
-                      </div>
-                    </div>
-                    <div className="text-2xl">
-                      {correct ? '✓' : '✗'}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
+        {/* Action Buttons */}
+        {showAnswer && (
+          <div className="flex items-center gap-4">
             <button
-              onClick={startQuiz}
-              className="px-6 py-3 rounded-full bg-gradient-to-r from-cyan-500 to-teal-500 text-white font-bold hover:shadow-lg transition-all hover:scale-105 active:scale-95"
+              onClick={() => speakTamil(q.correctTamil)}
+              className="flex items-center justify-center gap-2 px-6 py-4 bg-white border-2 border-slate-200 hover:border-cyan-500 text-slate-700 rounded-xl font-medium transition-all hover:scale-105"
             >
-              Try Again
+              <Volume2 className="w-5 h-5" />
+              Hear Pronunciation
             </button>
             <button
-              onClick={reset}
-              className="px-6 py-3 rounded-full border-2 border-slate-300 bg-white font-semibold hover:border-cyan-500 hover:bg-cyan-50 transition-all"
+              onClick={handleNext}
+              className="flex-1 px-8 py-4 bg-gradient-to-r from-cyan-500 to-teal-500 text-white rounded-xl font-bold text-lg hover:shadow-lg transition-all hover:scale-105 active:scale-95"
             >
-              Change Settings
+              {index < questions.length - 1 ? 'Next Question' : 'Finish Quiz'}
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

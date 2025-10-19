@@ -11,14 +11,8 @@ export default function SignInPage() {
   const search = useSearchParams();
   const urlMode = search.get('mode');
 
-  const rawNext = search.get('next') || '/dashboard';
-  const mapNext = (n: string) => {
-    if (!n) return '/dashboard';
-    if (n === '/scan') return '/dashboard/scan';
-    if (n === '/quiz') return '/dashboard/quiz';
-    return n.startsWith('/') ? n : `/${n}`;
-  };
-  const nextUrl = mapNext(rawNext);
+  // ALWAYS redirect to dashboard home after login
+  const nextUrl = '/dashboard';
 
   const [isSignUp, setIsSignUp] = useState(urlMode === 'signup');
   const { setAccessToken } = useAuth();
@@ -97,7 +91,7 @@ export default function SignInPage() {
       // On login: store token + name so dashboard can greet
       if (data?.access_token) {
         setAccessToken(data.access_token);
-        localStorage.setItem('access_token', data.access_token); // used by Scan/Quiz pages
+        localStorage.setItem('access_token', data.access_token);
       }
       if (data?.user?.name) {
         localStorage.setItem('user_name', data.user.name);
@@ -106,6 +100,7 @@ export default function SignInPage() {
         localStorage.setItem('user_name', guessed.charAt(0).toUpperCase() + guessed.slice(1));
       }
 
+      // Always redirect to dashboard home
       router.replace(nextUrl);
     } catch (err: any) {
       setError(err?.message || 'Something went wrong');

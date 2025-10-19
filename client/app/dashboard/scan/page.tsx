@@ -188,8 +188,10 @@ export default function ScanPage() {
 
   useEffect(() => {
     startCamera();
-    return () => stopStream();
-  }, []);
+    return () => {
+      stopStream();
+    };
+  }, [startCamera, stopStream]);
 
   const freeze = useCallback(() => {
     const vid = videoRef.current;

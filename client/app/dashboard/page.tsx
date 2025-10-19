@@ -138,19 +138,31 @@ export default function DashboardHome() {
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-2xl">🧠</div>
               <div className="flex-1 text-left">
                 <div className="font-semibold text-slate-900">Take Quiz</div>
-                <div className="text-sm text-slate-600">Use your saved words</div>
+                <div className="text-sm text-slate-600">Test your knowledge</div>
               </div>
               <div className="text-2xl group-hover:translate-x-1 transition-transform">→</div>
             </Link>
 
             <Link
-              href="/dashboard/bank"
+              href="/dashboard/flashcards"
               className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all group"
             >
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-2xl">🗂️</div>
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center text-2xl">🎴</div>
+              <div className="flex-1 text-left">
+                <div className="font-semibold text-slate-900">Flashcards</div>
+                <div className="text-sm text-slate-600">Review & memorize</div>
+              </div>
+              <div className="text-2xl group-hover:translate-x-1 transition-transform">→</div>
+            </Link>
+
+            <Link
+              href="/dashboard/words"
+              className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all group"
+            >
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-2xl">📚</div>
               <div className="flex-1 text-left">
                 <div className="font-semibold text-slate-900">My Word List</div>
-                <div className="text-sm text-slate-600">Review or remove words</div>
+                <div className="text-sm text-slate-600">Review & manage words</div>
               </div>
               <div className="text-2xl group-hover:translate-x-1 transition-transform">→</div>
             </Link>
