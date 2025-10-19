@@ -1,44 +1,58 @@
-"use client";
-import React, { createContext, useContext, useState, useCallback } from "react";
-import { apiFetch } from "@/lib/api";
+'use client';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
-interface AuthContextType {
+type User = { id: number; email: string; name: string };
+type Ctx = {
+  user: User | null;
   accessToken: string | null;
   setAccessToken: (t: string | null) => void;
-  refresh: () => Promise<string | null>;
-  logout: () => Promise<void>;
-}
+  logout: () => void;
+};
+const AuthCtx = createContext<Ctx>({
+  user: null, accessToken: null, setAccessToken: () => {}, logout: () => {}
+});
+export const useAuth = () => useContext(AuthCtx);
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const API = (process.env.NEXT_PUBLIC_SCAN_API || 'http://localhost:5000').replace(/\/$/, '');
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [accessToken, setAT] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
 
-  const refresh = useCallback(async () => {
-    const res = await apiFetch("/auth/refresh", { method: "POST" });
-    if (res.ok) {
-      const data = await res.json();
-      setAccessToken(data.access_token);
-      return data.access_token as string;
-    }
+  const setAccessToken = (t: string | null) => {
+    setAT(t);
+    if (t) localStorage.setItem('access_token', t);
+    else localStorage.removeItem('access_token');
+  };
+
+  const logout = () => {
     setAccessToken(null);
-    return null;
+    setUser(null);
+    window.location.href = '/';
+  };
+
+  // bootstrap from localStorage & load /me
+  useEffect(() => {
+    const t = localStorage.getItem('access_token');
+    if (!t) return;
+    setAT(t);
+    fetch(`${API}/me`, { headers: { Authorization: `Bearer ${t}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(u => u && setUser(u))
+      .catch(() => {});
   }, []);
 
-  const logout = useCallback(async () => {
-    await apiFetch("/auth/logout", { method: "POST" });
-    setAccessToken(null);
-  }, []);
+  useEffect(() => {
+    if (!accessToken) return setUser(null);
+    fetch(`${API}/me`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(u => u && setUser(u))
+      .catch(() => {});
+  }, [accessToken]);
 
   return (
-    <AuthContext.Provider value={{ accessToken, setAccessToken, refresh, logout }}>
+    <AuthCtx.Provider value={{ user, accessToken, setAccessToken, logout }}>
       {children}
-    </AuthContext.Provider>
+    </AuthCtx.Provider>
   );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
 }

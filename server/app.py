@@ -7,16 +7,12 @@ from flask_migrate import Migrate
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     jwt_required, get_jwt_identity, set_refresh_cookies,
-    unset_jwt_cookies  # removed set_access_cookies from here (unused safely)
+    unset_jwt_cookies
 )
 from models import db, User, SavedWord
 from PIL import Image
 
-# ---------------------------------------
-# Small helpers used by /api/identify
-# ---------------------------------------
 def ok_image_type(ct):
-    # Accept common camera uploads. Some browsers omit content-type, so allow None.
     return ct in ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
                   "application/octet-stream", None)
 
@@ -66,46 +62,31 @@ TRANSLATE_JSON_PROMPT = (
     "\"english\": \"<same english>\", \"partOfSpeech\": null, \"confidence\": 1.0 }"
 )
 
-# ---------------------------------------
-# App factory
-# ---------------------------------------
 def create_app():
     app = Flask(__name__)
 
-    # ---- Core config ----
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
     app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "dev-jwt-secret-change-me")
 
-    # JWT in headers for access, in cookies for refresh
     app.config["JWT_TOKEN_LOCATION"] = ["headers", "cookies"]
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=15)
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=60)
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=30)
 
-    # Cookie settings (tune for prod)
-    app.config["JWT_COOKIE_SECURE"] = False            # True in prod (HTTPS)
+    app.config["JWT_COOKIE_SECURE"] = False
     app.config["JWT_COOKIE_SAMESITE"] = "Lax"
-    app.config["JWT_COOKIE_CSRF_PROTECT"] = False      # Enable + send X-CSRF-TOKEN in prod
+    app.config["JWT_COOKIE_CSRF_PROTECT"] = False
 
-    # ---- Database ----
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///app.db")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     db.init_app(app)
 
-    # Migrations (optional but recommended)
     Migrate(app, db)
 
-    # ---- CORS ----
     FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
-    CORS(
-        app,
-        resources={r"/*": {"origins": [FRONTEND_ORIGIN]}},
-        supports_credentials=True,
-    )
+    CORS(app, resources={r"/*": {"origins": [FRONTEND_ORIGIN]}}, supports_credentials=True)
 
-    # ---- JWT ----
     JWTManager(app)
 
-    # ----- Gemini client (app-scoped) -----
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
     GEMINI_API_VERSION = os.environ.get("GEMINI_API_VERSION", "v1beta")
     GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-2.0-flash")
@@ -113,7 +94,6 @@ def create_app():
     genai_client = None
     try:
         if GEMINI_API_KEY:
-            # Make key visible to google-genai SDK
             os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
             from google import genai
             from google.genai import types
@@ -129,14 +109,10 @@ def create_app():
     app.config["GENAI_CLIENT"] = genai_client
     app.config["GEMINI_VISION_MODEL"] = GEMINI_VISION_MODEL
 
-    # ---- Create tables automatically in dev (so `flask run` works) ----
     if os.environ.get("AUTO_CREATE_DB", "1") == "1":
         with app.app_context():
             db.create_all()
 
-    # ---------------------------------------
-    # Error handlers -> JSON (so frontend never gets HTML)
-    # ---------------------------------------
     @app.errorhandler(400)
     def bad_request(e):
         return jsonify({"message": "Bad request", "detail": str(e)}), 400
@@ -153,9 +129,6 @@ def create_app():
     def server_error(e):
         return jsonify({"message": "Internal server error", "detail": str(e)}), 500
 
-    # ---------------------------------------
-    # Routes
-    # ---------------------------------------
     @app.get("/healthz")
     def healthz():
         return {"ok": True}, 200
@@ -163,16 +136,16 @@ def create_app():
     @app.post("/auth/register")
     def register():
         data = request.get_json(silent=True) or {}
+        name = (data.get("name") or "").strip() or "Tamil Learner"
         email = (data.get("email") or "").strip().lower()
         password = data.get("password") or ""
 
         if not email or not password:
             return jsonify({"message": "Email and password required"}), 400
-
         if User.query.filter_by(email=email).first():
             return jsonify({"message": "User already exists"}), 409
 
-        user = User(email=email)
+        user = User(email=email, name=name)
         try:
             user.set_password(password)
         except ValueError as e:
@@ -196,8 +169,17 @@ def create_app():
         refresh_token = create_refresh_token(identity=user.id)
 
         resp = jsonify({"access_token": access_token, "user": user.to_safe_dict()})
-        set_refresh_cookies(resp, refresh_token)  # httpOnly cookie (sent to browser)
+        set_refresh_cookies(resp, refresh_token)
         return resp, 200
+
+    @app.get("/auth/me")
+    @jwt_required()
+    def me():
+        uid = get_jwt_identity()
+        u = User.query.get(uid)
+        if not u:
+            return jsonify({"message": "Not found"}), 404
+        return jsonify({"user": u.to_safe_dict()}), 200
 
     @app.post("/auth/refresh")
     @jwt_required(refresh=True, locations=["cookies"])
@@ -210,7 +192,6 @@ def create_app():
     def logout():
         resp = jsonify({"message": "Logged out"})
         unset_jwt_cookies(resp)
-        # removed set_access_cookies(resp, access_token) – access_token is not defined here
         return resp, 200
 
     @app.get("/protected")
@@ -218,27 +199,26 @@ def create_app():
     def protected():
         uid = get_jwt_identity()
         user = User.query.get(uid)
-        return jsonify({
-            "hello": (user.email if user else uid),
-            "msg": "You have access."
-        }), 200
+        return jsonify({"hello": (user.email if user else uid), "msg": "You have access."}), 200
 
-    # ---------- Vocabulary bank (personalized) ----------
     DEFAULT_BANK_COUNT = int(os.environ.get("DEFAULT_BANK_COUNT", "103"))
 
     @app.get("/api/bank")
     @jwt_required(optional=True)
     def get_bank():
         uid = get_jwt_identity()
-
         items = []
         if uid:
-            rows = (SavedWord.query
+            rows = (
+                SavedWord.query
                 .filter_by(user_id=uid)
                 .order_by(SavedWord.created_at.desc())
-                .limit(600).all())
-            items = [{"id": r.id, "english": r.english, "tamil": r.tamil, "transliteration": r.transliteration} for r in rows]
-
+                .limit(600).all()
+            )
+            items = [
+                {"id": r.id, "english": r.english, "tamil": r.tamil, "transliteration": r.transliteration}
+                for r in rows
+            ]
         return jsonify({
             "items": items,
             "myListCount": len(items),
@@ -281,7 +261,6 @@ def create_app():
         db.session.delete(row); db.session.commit()
         return jsonify({"status": "deleted"}), 200
 
-    # --------- NEW: /api/identify (no auth) ---------
     @app.post("/api/identify")
     def api_identify():
         genai_client = current_app.config.get("GENAI_CLIENT")
@@ -301,7 +280,7 @@ def create_app():
             raw = image.read()
             jpg = compress_to_jpeg_bytes(raw)
 
-            from google.genai import types  # safe import here too
+            from google.genai import types
             resp = genai_client.models.generate_content(
                 model=vision_model,
                 contents=[
@@ -320,7 +299,6 @@ def create_app():
             pos = (item.get("partOfSpeech") or None)
             conf = clamp01(item.get("confidence", 0))
 
-            # Fallback translate if needed
             if (not tamil or not translit) and english:
                 try:
                     tresp = genai_client.models.generate_content(
@@ -353,10 +331,7 @@ def create_app():
 
     return app
 
-
-# WSGI entrypoint
 app = create_app()
 
 if __name__ == "__main__":
-    # Running as a script (useful if you do `python app.py`)
     app.run(host="0.0.0.0", port=5000, debug=True)

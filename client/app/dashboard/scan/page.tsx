@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Camera, RotateCcw } from 'lucide-react';
 
 type IdentifyResult = {
   tamil?: string;
@@ -19,11 +20,6 @@ type HistoryItem = {
 };
 
 type BankItem = { english: string; tamil: string; transliteration?: string };
-type BankResponse = {
-  items: BankItem[];
-  myListCount: number;
-  defaultCount: number;
-};
 
 const API = (process.env.NEXT_PUBLIC_SCAN_API || 'http://localhost:5000').replace(/\/$/, '');
 const LS_KEY = 'tamilAR_bank_v1';
@@ -32,8 +28,6 @@ function getAccessToken(): string | null {
   return localStorage.getItem('access_token');
 }
 
-
-/* ---------------- Local bank (fallback) ---------------- */
 function lsLoad(): BankItem[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -43,9 +37,11 @@ function lsLoad(): BankItem[] {
     return [];
   }
 }
+
 function lsSave(arr: BankItem[]) {
   localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0, 600)));
 }
+
 function lsAdd(item: BankItem): { added: boolean; total: number } {
   const bank = lsLoad();
   const exists = bank.some(
@@ -61,7 +57,6 @@ function lsAdd(item: BankItem): { added: boolean; total: number } {
   return { added: false, total: bank.length };
 }
 
-/* ---------------- Server bank helpers ---------------- */
 async function apiAdd(item: BankItem): Promise<'added' | 'exists'> {
   const atk = getAccessToken();
   const res = await fetch(`${API}/api/bank`, {
@@ -79,7 +74,6 @@ async function apiAdd(item: BankItem): Promise<'added' | 'exists'> {
   return (j.status as 'added' | 'exists') ?? 'added';
 }
 
-
 async function apiCount(): Promise<number> {
   const atk = getAccessToken();
   const res = await fetch(`${API}/api/bank`, {
@@ -87,35 +81,28 @@ async function apiCount(): Promise<number> {
     credentials: 'include',
     headers: atk ? { Authorization: `Bearer ${atk}` } : {},
   });
-
   if (res.status === 401) throw new Error('unauthorized');
   if (!res.ok) throw new Error('server');
-
-  // Support both new {items,myListCount,...} and legacy array responses
   const data = await res.json();
   if (Array.isArray(data)) return data.length;
-
   const obj = data as { items?: BankItem[]; myListCount?: number };
   if (typeof obj.myListCount === 'number') return obj.myListCount;
   return Array.isArray(obj.items) ? obj.items.length : 0;
 }
 
-
-/* ---------------- Component ---------------- */
 export default function ScanPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const blobRef = useRef<Blob | null>(null);
 
-  const [hint, setHint] = useState('Start camera, then Capture.');
   const [loading, setLoading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [overlay, setOverlay] = useState<IdentifyResult | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [bankCount, setBankCount] = useState<number>(0);
   const [justSaved, setJustSaved] = useState<null | 'ok' | 'dup' | 'err'>(null);
+  const [cameraError, setCameraError] = useState(false);
 
-  /* init count */
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -131,7 +118,6 @@ export default function ScanPage() {
     };
   }, []);
 
-  /* tiny UI sounds (subtle, neutral) */
   const ping = useCallback((freq = 880, dur = 0.06, vol = 0.03) => {
     try {
       const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -147,12 +133,12 @@ export default function ScanPage() {
       osc.stop(ctx.currentTime + dur);
     } catch {}
   }, []);
+
   const chime = useCallback(() => {
     ping(660, 0.09, 0.03);
     setTimeout(() => ping(990, 0.09, 0.03), 90);
   }, [ping]);
 
-  /* browser TTS */
   const speakTamil = useCallback((text?: string) => {
     if (!text) return;
     const utter = new SpeechSynthesisUtterance(text);
@@ -176,17 +162,16 @@ export default function ScanPage() {
     } else trySpeak();
   }, []);
 
-  /* camera */
   const stopStream = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
   }, []);
-  useEffect(() => stopStream, [stopStream]);
 
   const startCamera = useCallback(async () => {
     try {
+      setCameraError(false);
       stopStream();
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
@@ -194,19 +179,22 @@ export default function ScanPage() {
       });
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
-      setHint('Camera ready. Press Capture (or C).');
       ping(520, 0.05, 0.02);
     } catch (e: any) {
-      alert('Camera error: ' + e.message);
+      setCameraError(true);
+      console.error('Camera error:', e);
     }
   }, [ping, stopStream]);
 
-  const capture = useCallback(() => {
+  useEffect(() => {
+    startCamera();
+    return () => stopStream();
+  }, []);
+
+  const freeze = useCallback(() => {
     const vid = videoRef.current;
-    if (!vid || !vid.videoWidth) {
-      alert('Camera not ready.');
-      return;
-    }
+    if (!vid || !vid.videoWidth) return;
+    
     const can = document.createElement('canvas');
     can.width = vid.videoWidth;
     can.height = vid.videoHeight;
@@ -220,19 +208,29 @@ export default function ScanPage() {
         setPreviewUrl(url);
         setOverlay(null);
         setJustSaved(null);
-        setHint('Captured. Press Identify (or I).');
+        stopStream();
         ping(660, 0.05, 0.02);
       },
       'image/jpeg',
       0.9
     );
-  }, [ping]);
+  }, [ping, stopStream]);
+
+  const retake = useCallback(() => {
+    blobRef.current = null;
+    setPreviewUrl('');
+    setOverlay(null);
+    setJustSaved(null);
+    startCamera();
+  }, [startCamera]);
 
   const identify = useCallback(async () => {
     if (!blobRef.current) {
-      alert('Capture first.');
-      return;
+      freeze();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (!blobRef.current) return;
     }
+    
     setLoading(true);
     try {
       const fd = new FormData();
@@ -243,10 +241,12 @@ export default function ScanPage() {
       });
       const j: IdentifyResult & { detail?: string } = await res.json();
       setLoading(false);
+      
       if (!res.ok) {
         alert(j.detail || 'Identify failed');
         return;
       }
+      
       setOverlay(j);
       setJustSaved(null);
       setHistory((prev) => {
@@ -255,239 +255,191 @@ export default function ScanPage() {
           tamil: j.tamil || '—',
           translit: j.transliteration || '—',
           english: j.english || '—',
-          confidence:
-            typeof j.confidence === 'number' ? Math.round(j.confidence * 100) : null,
+          confidence: typeof j.confidence === 'number' ? Math.round(j.confidence * 100) : null,
         };
         return [item, ...prev].slice(0, 8);
       });
+
+      const item: BankItem = {
+        english: j.english || '',
+        tamil: j.tamil || '',
+        transliteration: j.transliteration,
+      };
+      
+      if (item.english && item.tamil) {
+        try {
+          const s = await apiAdd(item);
+          setJustSaved(s === 'added' ? 'ok' : 'dup');
+          try {
+            const n = await apiCount();
+            setBankCount(n);
+          } catch {}
+          ping(s === 'added' ? 880 : 420, 0.08, 0.04);
+        } catch {
+          const { added, total } = lsAdd(item);
+          setBankCount(total);
+          setJustSaved(added ? 'ok' : 'dup');
+          ping(added ? 880 : 420, 0.08, 0.04);
+        } finally {
+          setTimeout(() => setJustSaved(null), 2000);
+        }
+      }
+
       chime();
     } catch (e: any) {
       setLoading(false);
       alert(e.message || 'Network error');
     }
-  }, [previewUrl, chime]);
+  }, [previewUrl, chime, freeze, ping]);
 
-  /* keyboard shortcuts */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      const k = e.key.toLowerCase();
-      if (k === 'c') {
-        e.preventDefault();
-        capture();
-      } else if (k === 'i') {
-        e.preventDefault();
-        identify();
-      } else if (k === 's' || e.code === 'Space') {
-        e.preventDefault();
-        speakTamil(overlay?.tamil);
-      } else if (k === 'a') {
-        e.preventDefault();
-        if (overlay?.english && overlay?.tamil) onAdd();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [capture, identify, speakTamil, overlay]);
+  const pct = typeof overlay?.confidence === 'number' ? Math.round(overlay.confidence * 100) : null;
 
-  const onAdd = async () => {
-    if (!overlay?.english || !overlay?.tamil) return;
-    const item: BankItem = {
-      english: overlay.english,
-      tamil: overlay.tamil,
-      transliteration: overlay.transliteration,
-    };
-    try {
-      const s = await apiAdd(item);
-      setJustSaved(s === 'added' ? 'ok' : 'dup');
-      try {
-        const n = await apiCount();
-        setBankCount(n);
-      } catch {}
-      ping(s === 'added' ? 880 : 420, 0.08, 0.04);
-    } catch {
-      const { added, total } = lsAdd(item);
-      setBankCount(total);
-      setJustSaved(added ? 'ok' : 'dup');
-      ping(added ? 880 : 420, 0.08, 0.04);
-    } finally {
-      setTimeout(() => setJustSaved(null), 1200);
-    }
-  };
-
-  const pct =
-    typeof overlay?.confidence === 'number'
-      ? Math.round((overlay.confidence as number) * 100)
-      : null;
-
-  // Use previewUrl to enable Identify (ref changes don't re-render)
-  const canIdentify = !!previewUrl && !loading;
-
-  /* ---------------- UI (neutral style) ---------------- */
   return (
-    <div className="min-h-screen bg-white text-slate-900">
-      <header className="sticky top-0 z-10 border-b bg-white/90 backdrop-blur px-4 py-3">
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
-          <div className="font-bold">Tamil-AR</div>
-          <div className="text-sm text-slate-600 flex items-center gap-3">
-            <span>
-              Shortcuts:&nbsp;
-              <kbd className="rounded border px-2 py-0.5">C</kbd> Capture
-              <kbd className="rounded border px-2 py-0.5 ml-2">I</kbd> Identify
-              <kbd className="rounded border px-2 py-0.5 ml-2">S</kbd>/
-              <kbd className="rounded border px-2 py-0.5">Space</kbd> Speak
-              <kbd className="rounded border px-2 py-0.5 ml-2">A</kbd> Add
-            </span>
-            <span className="rounded-full border bg-slate-50 px-3 py-1 text-xs">
-              My List: <b>{bankCount}</b>
-            </span>
-          </div>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900">Scan & Learn</h1>
+        <div className="bg-gradient-to-r from-cyan-50 to-teal-50 border border-cyan-200 rounded-full px-4 py-1.5">
+          <span className="text-sm text-slate-700">My List: <span className="font-bold text-cyan-600">{bankCount}</span></span>
         </div>
-      </header>
+      </div>
 
-      <main className="mx-auto max-w-5xl px-4 py-5">
-        <p className="mb-3 text-sm text-slate-600">
-          Backend: <code>{API}</code> • TTS: browser <code>speechSynthesis</code>
-        </p>
+      <div className="grid lg:grid-cols-[1fr_300px] gap-6">
+        {/* Camera View */}
+        <div className="space-y-4">
+          <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-black shadow-xl border-2 border-slate-200">
+            {!previewUrl ? (
+              <>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+                {cameraError && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-900/90 text-white p-6 text-center">
+                    <div>
+                      <Camera className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p className="text-lg mb-2">Camera access needed</p>
+                      <p className="text-sm text-slate-300">Please allow camera permissions to scan objects</p>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <img src={previewUrl} alt="capture" className="w-full h-full object-cover" />
+            )}
 
-        <div className="grid gap-4 lg:grid-cols-[1fr,260px]">
-          {/* Main */}
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
-            {/* Toolbar */}
-            <div className="mb-3 flex flex-wrap items-center gap-8">
-              <div className="flex items-center gap-2">
-                <button
-                  className="rounded-lg border bg-white px-4 py-2 font-semibold hover:bg-slate-50"
-                  onClick={startCamera}
-                >
-                  Start Camera
-                </button>
-                <button
-                  className="rounded-lg border bg-white px-4 py-2 font-semibold hover:bg-slate-50 disabled:opacity-60"
-                  onClick={capture}
-                  disabled={!streamRef.current}
-                  title={!streamRef.current ? 'Start camera first' : undefined}
-                >
-                  Capture
-                </button>
-                <button
-                  className="rounded-lg border bg-white px-4 py-2 font-semibold hover:bg-slate-50 disabled:opacity-60"
-                  onClick={identify}
-                  disabled={!canIdentify}
-                  title={!canIdentify ? 'Capture first' : undefined}
-                >
-                  {loading ? 'Identifying…' : 'Identify'}
-                </button>
-              </div>
-              <span className="text-slate-600">{hint}</span>
-            </div>
+            {loading && (
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 to-teal-500 animate-pulse" />
+            )}
 
-            {/* Live */}
-            <div className="relative aspect-[16/9] overflow-hidden rounded-lg border bg-black">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="h-full w-full object-cover"
-              />
-              {loading && (
-                <div className="pointer-events-none absolute left-0 right-0 top-0 h-[3px] bg-slate-300 animate-pulse" />
-              )}
-            </div>
-
-            {/* Captured */}
-            <div className="mt-3 relative aspect-[16/9] overflow-hidden rounded-lg border bg-black">
-              {previewUrl && (
-                <img src={previewUrl} alt="capture" className="h-full w-full object-cover" />
-              )}
-              {overlay && (overlay.english || typeof overlay.confidence === 'number') && (
-                <span className="absolute right-3 top-3 rounded-full border bg-white/80 px-3 py-1 text-xs">
-                  {overlay.english}
-                  {typeof pct === 'number' ? ` • ${pct}%` : ''}
-                </span>
-              )}
-              {overlay && (
-                <div
-                  aria-live="polite"
-                  className="absolute inset-x-3 bottom-3 flex items-end justify-between gap-3 rounded-lg border bg-white/85 px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <div className="text-[clamp(22px,3.6vw,34px)] font-extrabold leading-tight tracking-wide">
+            {overlay && (
+              <div className="absolute inset-x-4 bottom-4 bg-white/95 backdrop-blur-lg rounded-2xl shadow-xl p-5 border-2 border-cyan-200">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-4xl font-bold text-slate-900 mb-1 leading-tight">
                       {overlay.tamil || '—'}
                     </div>
-                    <div className="mt-[2px] text-sm text-slate-700">
+                    <div className="text-lg text-slate-600 mb-1">
                       {overlay.transliteration || '—'}
                     </div>
-                    <div className="text-xs text-slate-600">{overlay.english || '—'}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => speakTamil(overlay.tamil)}
-                      className="rounded-full border bg-white px-3 py-2 font-semibold hover:bg-slate-50"
-                    >
-                      🔊 Speak
-                    </button>
-                    <button
-                      onClick={onAdd}
-                      className="rounded-full border bg-white px-3 py-2 font-semibold hover:bg-slate-50"
-                      title="Add to My List"
-                    >
-                      ➕ Add
-                    </button>
-                  </div>
-                </div>
-              )}
-              {justSaved && (
-                <div className="absolute left-3 top-3 rounded-full border bg-white/85 px-3 py-1 text-xs">
-                  {justSaved === 'ok'
-                    ? 'Added to list'
-                    : justSaved === 'dup'
-                    ? 'Already in list'
-                    : 'Save failed'}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* History */}
-          <aside className="rounded-xl border bg-white p-3 shadow-sm">
-            <h3 className="mb-2 ml-1 text-sm text-slate-700">History</h3>
-            <div className="grid gap-2">
-              {history.map((it, i) => (
-                <button
-                  key={i}
-                  className="grid w-full grid-cols-[64px_1fr] items-center gap-2 rounded-lg border bg-white p-2 text-left hover:bg-slate-50"
-                  onClick={() => {
-                    setPreviewUrl(it.url);
-                    setOverlay({
-                      tamil: it.tamil,
-                      transliteration: it.translit,
-                      english: it.english,
-                      confidence: it.confidence ? it.confidence / 100 : null,
-                      partOfSpeech: null,
-                    });
-                    speakTamil(it.tamil);
-                  }}
-                >
-                  <img src={it.url} alt="" className="h-10 w-16 rounded-md object-cover bg-black" />
-                  <div>
-                    <div className="font-bold">{it.tamil}</div>
-                    <div className="truncate text-xs text-slate-600">
-                      {it.english}
-                      {it.confidence !== null ? ` • ${it.confidence}%` : ''}
+                    <div className="text-sm text-slate-500">
+                      {overlay.english || '—'}
+                      {pct !== null && <span className="ml-2 text-cyan-600 font-medium">{pct}%</span>}
                     </div>
                   </div>
-                </button>
-              ))}
-              {history.length === 0 && (
-                <div className="rounded-md border bg-white p-3 text-slate-600">No scans yet.</div>
-              )}
-            </div>
-          </aside>
+                  <button
+                    onClick={() => speakTamil(overlay.tamil)}
+                    className="flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-teal-500 text-white flex items-center justify-center hover:shadow-lg transition-all hover:scale-105 active:scale-95"
+                    title="Speak"
+                  >
+                    🔊
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {justSaved && (
+              <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-lg rounded-full px-4 py-2 shadow-lg border border-emerald-200">
+                <span className="text-sm font-medium text-emerald-700">
+                  {justSaved === 'ok' ? '✓ Added to list' : justSaved === 'dup' ? '✓ Already saved' : '✗ Save failed'}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Controls */}
+          <div className="flex items-center justify-center gap-4">
+            {previewUrl && (
+              <button
+                onClick={retake}
+                className="flex items-center gap-2 px-6 py-3 bg-white rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95 border-2 border-slate-200 hover:border-cyan-500"
+                title="Retake"
+              >
+                <RotateCcw className="w-5 h-5 text-slate-700" />
+                <span className="font-medium text-slate-700">Retake</span>
+              </button>
+            )}
+            
+            <button
+              onClick={identify}
+              disabled={loading}
+              className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-cyan-500 to-teal-500 text-white rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+            >
+              <Camera className="w-6 h-6" />
+              <span className="font-bold text-lg">
+                {loading ? 'Identifying...' : 'Identify'}
+              </span>
+            </button>
+          </div>
         </div>
-      </main>
+
+        {/* History Sidebar */}
+        <aside className="bg-white rounded-2xl shadow-lg border border-slate-200 p-5 h-fit">
+          <h3 className="text-lg font-bold text-slate-900 mb-4">Recent Scans</h3>
+          <div className="space-y-3">
+            {history.map((it, i) => (
+              <button
+                key={i}
+                className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-cyan-50 border border-transparent hover:border-cyan-200 transition-all text-left group"
+                onClick={() => {
+                  setPreviewUrl(it.url);
+                  setOverlay({
+                    tamil: it.tamil,
+                    transliteration: it.translit,
+                    english: it.english,
+                    confidence: it.confidence ? it.confidence / 100 : null,
+                    partOfSpeech: null,
+                  });
+                  speakTamil(it.tamil);
+                }}
+              >
+                <img 
+                  src={it.url} 
+                  alt="" 
+                  className="w-14 h-14 rounded-lg object-cover bg-black flex-shrink-0 group-hover:scale-105 transition-transform border-2 border-slate-200" 
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-slate-900 truncate">{it.tamil}</div>
+                  <div className="text-sm text-slate-600 truncate">
+                    {it.english}
+                    {it.confidence !== null && (
+                      <span className="ml-1 text-cyan-600">• {it.confidence}%</span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            ))}
+            {history.length === 0 && (
+              <div className="text-center py-8 text-slate-400">
+                <Camera className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No scans yet</p>
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
