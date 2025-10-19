@@ -1,172 +1,238 @@
+'use client';
+
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+
+type BankItem = { id?: number; english: string; tamil: string; transliteration?: string };
+type BankResponse =
+  | BankItem[]
+  | { items: BankItem[]; myListCount: number; defaultCount?: number };
+
+const API = (process.env.NEXT_PUBLIC_SCAN_API || 'http://localhost:5000').replace(/\/$/, '');
+const LS_KEY = 'tamilAR_bank_v1';
+
+// ---- helpers copied to match Quiz workflow ----
+function getAccessToken(): string | null {
+  return localStorage.getItem('access_token');
+}
+
+function lsLoad(): BankItem[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    const arr = raw ? (JSON.parse(raw) as BankItem[]) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+async function loadBank(): Promise<{ items: BankItem[]; myListCount: number }> {
+  const atk = getAccessToken();
+  const res = await fetch(`${API}/api/bank`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: atk ? { Authorization: `Bearer ${atk}` } : {},
+  });
+
+  // If unauthorized, let caller fall back to local storage
+  if (res.status === 401) throw new Error('unauthorized');
+  if (!res.ok) throw new Error(`server ${res.status}`);
+
+  const data: BankResponse = await res.json();
+  if (Array.isArray(data)) {
+    return { items: data, myListCount: data.length };
+  }
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+    myListCount:
+      typeof data.myListCount === 'number'
+        ? data.myListCount
+        : Array.isArray(data.items)
+        ? data.items.length
+        : 0,
+  };
+}
+
+// ---- Dashboard ----
 export default function DashboardHome() {
-  const stats = [
-    { title: 'Weekly Scans', value: '24', change: '+8 this week', icon: '📸', trend: 'up' },
-    { title: 'Words Learned', value: '152', change: '+12 this week', icon: '📚', trend: 'up' },
-    { title: 'Quiz Streak', value: '5 days', change: 'Keep going!', icon: '🔥', trend: 'neutral' },
-    { title: 'Accuracy', value: '87%', change: '+3% improvement', icon: '🎯', trend: 'up' },
-  ];
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [items, setItems] = useState<BankItem[]>([]);
+  const [totalWords, setTotalWords] = useState(0);
 
-  const recentActivity = [
-    { word: 'வாழைப்பழம்', english: 'banana', translit: 'vāḻaippaḻam', time: '2 hours ago' },
-    { word: 'புத்தகம்', english: 'book', translit: 'puttakam', time: '5 hours ago' },
-    { word: 'நீர்', english: 'water', translit: 'nīr', time: '1 day ago' },
-  ];
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      setError(null);
+      try {
+        const { items, myListCount } = await loadBank();
+        if (!on) return;
+        setItems(items);
+        setTotalWords(myListCount);
+      } catch {
+        // logged out or network/server issue → show device words if any
+        const ls = lsLoad();
+        if (!on) return;
+        setItems(ls);
+        setTotalWords(ls.length);
+        setError('Showing local words (not signed in or server unavailable).');
+      } finally {
+        if (on) setLoading(false);
+      }
+    })();
+    return () => {
+      on = false;
+    };
+  }, []);
 
-  const milestones = [
-    { label: '50 Words', achieved: true },
-    { label: '100 Words', achieved: true },
-    { label: '200 Words', achieved: false, progress: 76 },
-  ];
+  const recent = useMemo(
+    () =>
+      items.slice(0, 6).map((w) => ({
+        word: w.tamil,
+        english: w.english,
+        translit: w.transliteration || '',
+      })),
+    [items]
+  );
+
+  const thresholds = [50, 100, 200] as const;
 
   return (
     <div className="space-y-6">
-      {/* Welcome Section */}
+      {/* Header */}
       <div className="bg-gradient-to-br from-cyan-500 via-teal-500 to-cyan-600 rounded-2xl p-8 text-white shadow-xl">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Welcome back, Learner!</h1>
-            <p className="text-cyan-50 text-lg">You're doing great! Keep up the momentum.</p>
+            <h1 className="text-3xl font-bold mb-2">Welcome back!</h1>
+            <p className="text-cyan-50 text-lg">Your personal Tamil word bank is growing.</p>
+            {error && <p className="mt-2 text-amber-100/90 text-sm">{error}</p>}
           </div>
           <div className="bg-white/20 backdrop-blur-sm rounded-2xl px-6 py-4 text-center">
-            <div className="text-4xl font-bold">152</div>
+            <div className="text-4xl font-bold">{loading ? '—' : totalWords}</div>
             <div className="text-sm text-cyan-50 mt-1">Total Words</div>
           </div>
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, i) => (
-          <div key={i} className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-lg transition-all">
-            <div className="flex items-start justify-between mb-3">
-              <div className="text-3xl">{stat.icon}</div>
-              {stat.trend === 'up' && (
-                <div className="bg-emerald-50 text-emerald-700 text-xs font-medium px-2 py-1 rounded-full">
-                  ↑ Trending
-                </div>
-              )}
-            </div>
-            <div className="text-sm text-slate-600 mb-1">{stat.title}</div>
-            <div className="text-2xl font-bold text-slate-900">{stat.value}</div>
-            <div className="text-xs text-slate-500 mt-1">{stat.change}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Two Column Layout */}
+      {/* Quick Actions + Recent */}
       <div className="grid lg:grid-cols-2 gap-6">
-        {/* Quick Actions */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6">
           <h3 className="font-bold text-lg mb-4 text-slate-900">Quick Actions</h3>
           <div className="space-y-3">
-            <button className="w-full flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 text-white hover:shadow-lg transition-all group">
-              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl">
-                📸
-              </div>
+            <Link
+              href="/dashboard/scan"
+              className="w-full flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 text-white hover:shadow-lg transition-all group"
+            >
+              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl">📸</div>
               <div className="flex-1 text-left">
                 <div className="font-semibold">Scan Object</div>
                 <div className="text-sm text-cyan-50">Point & learn new words</div>
               </div>
               <div className="text-2xl group-hover:translate-x-1 transition-transform">→</div>
-            </button>
+            </Link>
 
-            <button className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all group">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-2xl">
-                🧠
-              </div>
+            <Link
+              href="/dashboard/quiz"
+              className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all group"
+            >
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-2xl">🧠</div>
               <div className="flex-1 text-left">
                 <div className="font-semibold text-slate-900">Take Quiz</div>
-                <div className="text-sm text-slate-600">Test your knowledge</div>
+                <div className="text-sm text-slate-600">Use your saved words</div>
               </div>
               <div className="text-2xl group-hover:translate-x-1 transition-transform">→</div>
-            </button>
+            </Link>
 
-            <button className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all group">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-2xl">
-                🗂️
-              </div>
+            <Link
+              href="/dashboard/bank"
+              className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-slate-200 hover:border-cyan-500 hover:bg-cyan-50 transition-all group"
+            >
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-2xl">🗂️</div>
               <div className="flex-1 text-left">
                 <div className="font-semibold text-slate-900">My Word List</div>
-                <div className="text-sm text-slate-600">Review saved words</div>
+                <div className="text-sm text-slate-600">Review or remove words</div>
               </div>
               <div className="text-2xl group-hover:translate-x-1 transition-transform">→</div>
-            </button>
+            </Link>
           </div>
         </div>
 
-        {/* Recent Activity */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6">
           <h3 className="font-bold text-lg mb-4 text-slate-900">Recent Activity</h3>
           <div className="space-y-3">
-            {recentActivity.map((item, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-cyan-50 transition-all border border-transparent hover:border-cyan-200">
+            {loading && <div className="text-slate-500 text-sm">Loading…</div>}
+            {!loading && recent.length === 0 && (
+              <div className="text-slate-500 text-sm">
+                No words yet. Try{' '}
+                <Link href="/dashboard/scan" className="text-cyan-700 font-medium underline">
+                  scanning your first object
+                </Link>
+                .
+              </div>
+            )}
+            {recent.map((r, i) => (
+              <div
+                key={`${r.english}-${i}`}
+                className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-cyan-50 transition-all border border-transparent hover:border-cyan-200"
+              >
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-teal-500 flex items-center justify-center text-white font-bold">
-                  {item.english[0].toUpperCase()}
+                  {r.english?.[0]?.toUpperCase() || '·'}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-slate-900">{item.word}</div>
-                  <div className="text-sm text-slate-600 truncate">{item.english} • {item.translit}</div>
+                  <div className="font-bold text-slate-900">{r.word}</div>
+                  <div className="text-sm text-slate-600 truncate">
+                    {r.english} {r.translit ? `• ${r.translit}` : ''}
+                  </div>
                 </div>
-                <div className="text-xs text-slate-500">{item.time}</div>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Learning Progress */}
+      {/* Milestones – live progress */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <h3 className="font-bold text-lg mb-4 text-slate-900">Learning Milestones</h3>
         <div className="grid sm:grid-cols-3 gap-4">
-          {milestones.map((milestone, i) => (
-            <div key={i} className={`p-4 rounded-xl border-2 ${
-              milestone.achieved 
-                ? 'border-emerald-200 bg-emerald-50' 
-                : 'border-slate-200 bg-slate-50'
-            }`}>
-              <div className="flex items-center gap-2 mb-2">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  milestone.achieved 
-                    ? 'bg-emerald-500 text-white' 
-                    : 'bg-slate-300 text-slate-600'
-                }`}>
-                  {milestone.achieved ? '✓' : '○'}
+          {thresholds.map((t) => {
+            const achieved = totalWords >= t;
+            const progress = achieved ? 100 : Math.min(100, Math.round((totalWords / t) * 100));
+            return (
+              <div
+                key={t}
+                className={`p-4 rounded-xl border-2 ${
+                  achieved ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      achieved ? 'bg-emerald-500 text-white' : 'bg-slate-300 text-slate-600'
+                    }`}
+                  >
+                    {achieved ? '✓' : '○'}
+                  </div>
+                  <div className="font-semibold text-slate-900">{t} Words</div>
                 </div>
-                <div className="font-semibold text-slate-900">{milestone.label}</div>
+                {!achieved && (
+                  <div className="mt-2">
+                    <div className="flex justify-between text-xs text-slate-600 mb-1">
+                      <span>{progress}%</span>
+                      <span>
+                        {Math.min(totalWords, t)}/{t}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-cyan-500 to-teal-500 transition-all"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
-              {!milestone.achieved && milestone.progress && (
-                <div className="mt-2">
-                  <div className="flex justify-between text-xs text-slate-600 mb-1">
-                    <span>{milestone.progress}%</span>
-                    <span>{Math.round(200 * milestone.progress / 100)}/200</span>
-                  </div>
-                  <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-cyan-500 to-teal-500 transition-all"
-                      style={{ width: `${milestone.progress}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Feature Highlight */}
-      <div className="bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200 rounded-2xl p-6">
-        <div className="flex items-start gap-4">
-          <div className="text-4xl">🎯</div>
-          <div className="flex-1">
-            <h3 className="font-bold text-lg mb-2 text-slate-900">How Tamil Lens Works</h3>
-            <p className="text-slate-700 mb-3">
-              Point your camera at any object around you. Tamil Lens will identify it and teach you the Tamil word with proper pronunciation. Each word you scan is automatically added to your personal collection and quiz bank.
-            </p>
-            <div className="flex items-center gap-2 text-sm text-violet-700">
-              <span className="font-medium">Ready to start?</span>
-              <button className="font-semibold hover:underline">Scan your first object →</button>
-            </div>
-          </div>
+            );
+          })}
         </div>
       </div>
     </div>
