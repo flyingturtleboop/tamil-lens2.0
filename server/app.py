@@ -238,7 +238,65 @@ def create_app():
         if not u:
             return jsonify({"message": "Not found"}), 404
         return jsonify({"user": u.to_safe_dict()}), 200
+    @app.put("/auth/update-profile")
+    @jwt_required()
+    def update_profile():
+        uid = get_jwt_identity()
+        user = User.query.get(uid)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        
+        data = request.get_json(silent=True) or {}
+        name = (data.get("name") or "").strip()
+        email = (data.get("email") or "").strip().lower()
+        
+        if not name or not email:
+            return jsonify({"message": "Name and email required"}), 400
+        
+        # Check if email is already taken by another user
+        if email != user.email:
+            existing = User.query.filter_by(email=email).first()
+            if existing:
+                return jsonify({"message": "Email already in use"}), 409
+        
+        user.name = name
+        user.email = email
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Profile updated",
+            "user": user.to_safe_dict()
+        }), 200
 
+    @app.put("/auth/update-password")
+    @jwt_required()
+    def update_password():
+        uid = get_jwt_identity()
+        user = User.query.get(uid)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        
+        data = request.get_json(silent=True) or {}
+        current_password = data.get("currentPassword") or ""
+        new_password = data.get("newPassword") or ""
+        
+        if not current_password or not new_password:
+            return jsonify({"message": "Current and new password required"}), 400
+        
+        # Verify current password
+        if not user.check_password(current_password):
+            return jsonify({"message": "Current password is incorrect"}), 401
+        
+        # Validate new password
+        if len(new_password) < 8:
+            return jsonify({"message": "Password must be at least 8 characters"}), 400
+        
+        try:
+            user.set_password(new_password)
+            db.session.commit()
+            return jsonify({"message": "Password updated successfully"}), 200
+        except ValueError as e:
+            return jsonify({"message": str(e)}), 400
     @app.post("/auth/refresh")
     @jwt_required(refresh=True, locations=["cookies"])
     def refresh():

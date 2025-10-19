@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Camera, BookOpen, Brain, Menu, LogOut, Search, ChevronLeft, ChevronRight, Flame } from 'lucide-react';
+import { Home, Camera, BookOpen, Brain, Menu, LogOut, Search, ChevronLeft, ChevronRight, Flame, Settings } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import Protected from '@/components/Protected';
 
@@ -15,6 +15,7 @@ const nav = [
   { href: '/dashboard/flashcards', label: 'Flashcards', icon: <BookOpen className="w-5 h-5" />, exact: false },
   { href: '/dashboard/words', label: 'My Word List', icon: <BookOpen className="w-5 h-5" />, exact: false },
   { href: '/dashboard/quiz', label: 'Quiz', icon: <Brain className="w-5 h-5" />, exact: false },
+  { href: '/dashboard/settings', label: 'Settings', icon: <Settings className="w-5 h-5" />, exact: false },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
