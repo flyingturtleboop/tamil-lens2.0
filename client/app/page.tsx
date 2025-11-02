@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Navbar from '@/components/Navbar';
 
 export default function LandingPage() {
   const [isVisible, setIsVisible] = useState(false);
@@ -61,7 +60,7 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-cyan-50">
-      <Navbar />
+      {/* Navbar is rendered from layout.tsx only */}
 
       {/* Hero */}
       <section id="home" className="pt-28 sm:pt-32 pb-16 sm:pb-20">
@@ -159,7 +158,7 @@ export default function LandingPage() {
           <h2 className="text-3xl sm:text-4xl font-bold text-center text-slate-900 mb-12 sm:mb-16">
             How It Works
           </h2>
-          <div className="mx-auto grid grid-cols-1 sm:grid-cols-3 gap-10 sm:gap-12 max-w-6xl">
+        <div className="mx-auto grid grid-cols-1 sm:grid-cols-3 gap-10 sm:gap-12 max-w-6xl">
             {steps.map((s, i) => (
               <div key={i} className="text-center">
                 <div className="relative inline-block mb-5 sm:mb-6">
