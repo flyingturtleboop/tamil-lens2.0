@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
-export default function SignInPage() {
+// Keep all hooks that call useSearchParams inside this component
+function SignInContent() {
   const router = useRouter();
   const search = useSearchParams();
   const urlMode = search.get('mode');
@@ -17,7 +18,15 @@ export default function SignInPage() {
   const [isSignUp, setIsSignUp] = useState(urlMode === 'signup');
   const { setAccessToken } = useAuth();
 
-  const [formData, setFormData] = useState({
+  type FormState = {
+    name: string;
+    email: string;
+    password: string;
+    confirmPassword: string;
+    remember: boolean;
+  };
+
+  const [formData, setFormData] = useState<FormState>({
     name: '',
     email: '',
     password: '',
@@ -37,6 +46,12 @@ export default function SignInPage() {
         : 'Sign in to continue building your Tamil vocabulary.',
     [isSignUp]
   );
+
+  type LoginResponse = {
+    access_token?: string;
+    user?: { name?: string; email?: string };
+    message?: string;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,7 +79,7 @@ export default function SignInPage() {
 
     try {
       const path = isSignUp ? '/auth/register' : '/auth/login';
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         email: formData.email.trim().toLowerCase(),
         password: formData.password,
         remember: formData.remember,
@@ -76,12 +91,16 @@ export default function SignInPage() {
         body: JSON.stringify(payload),
       });
 
-      let data: any = {};
-      try { data = await res.json(); } catch {}
+      let data: LoginResponse = {};
+      try {
+        data = (await res.json()) as LoginResponse;
+      } catch {
+        // ignore body parse errors
+      }
 
       if (!res.ok) throw new Error(data?.message || 'Authentication failed');
 
-      // For signup: flip back to sign-in keeping email
+      // For signup: switch to sign-in and clear sensitive fields
       if (isSignUp) {
         setIsSignUp(false);
         setFormData((d) => ({ ...d, password: '', confirmPassword: '', name: '' }));
@@ -100,10 +119,11 @@ export default function SignInPage() {
         localStorage.setItem('user_name', guessed.charAt(0).toUpperCase() + guessed.slice(1));
       }
 
-      // Always redirect to dashboard home
       router.replace(nextUrl);
-    } catch (err: any) {
-      setError(err?.message || 'Something went wrong');
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : typeof err === 'string' ? err : 'Something went wrong';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -143,7 +163,7 @@ export default function SignInPage() {
               Hello, <br /> Tamil Learner!
             </h1>
             <p className="mt-5 text-white/90 text-lg leading-relaxed">
-              Point, hear, and practice with spaced repetition. Get productive with Tamil—fast.
+              Point, hear, and practice with spaced repetition. Get productive with Tamil fast.
             </p>
             <p className="mt-12 text-sm text-white/80">© {new Date().getFullYear()} Tamil Lens</p>
           </div>
@@ -312,5 +332,14 @@ export default function SignInPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Page export wrapped in Suspense to satisfy Next prerender requirement
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <SignInContent />
+    </Suspense>
   );
 }
