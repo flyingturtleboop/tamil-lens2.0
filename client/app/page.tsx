@@ -3,6 +3,15 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
+import {
+  Camera,
+  Volume2,
+  BookOpenCheck,
+  Target,
+  Zap,
+  Trophy,
+  Star,
+} from 'lucide-react';
 
 export default function LandingPage() {
   const [isVisible, setIsVisible] = useState(false);
@@ -16,21 +25,21 @@ export default function LandingPage() {
 
   const features = [
     {
-      icon: '📸',
+      Icon: Camera,
       title: 'Lens & Learn',
       description:
         'Freeze the frame and label objects in English + தமிழ் + transliteration',
       gradient: 'from-cyan-400 to-teal-400',
     },
     {
-      icon: '🔊',
+      Icon: Volume2,
       title: 'Hear It',
       description:
-        'Play natural audio in both languages (EN/Ta) with perfect pronunciation',
+        'Play natural audio in both languages (EN/Ta) with clear pronunciation',
       gradient: 'from-yellow-400 to-orange-400',
     },
     {
-      icon: '📚',
+      Icon: BookOpenCheck,
       title: 'Practice Quiz',
       description:
         'Multiple-choice and spelling with gentle spaced repetition',
@@ -39,23 +48,23 @@ export default function LandingPage() {
   ];
 
   const steps = [
-    { number: '1', icon: '🎯', title: 'Point', description: 'Aim at any object' },
-    { number: '2', icon: '⚡', title: 'Tap Scan', description: 'Instant recognition' },
-    { number: '3', icon: '🏆', title: 'Learn', description: 'Build vocabulary' },
+    { number: '1', Icon: Target, title: 'Point', description: 'Aim at any object' },
+    { number: '2', Icon: Zap, title: 'Tap Scan', description: 'Instant recognition' },
+    { number: '3', Icon: Trophy, title: 'Learn', description: 'Build vocabulary' },
   ];
 
   const testimonials = [
     {
       stars: 5,
       quote:
-        'I learned 50 Tamil words in my first week! The audio helps so much with pronunciation.',
-      author: 'Priya, Age 9',
+        'The students have been much more engaged in learning Tamil with the app. They love scanning objects and hearing the pronunciation.',
+      author: 'Ms. Deepa',
     },
     {
       stars: 5,
       quote:
-        'This app makes Tamil accessible and fun. My students are engaged and actually excited to practice.',
-      author: 'Mr. Kumar, Teacher',
+        'I learned a lot of new words scanning things at home. The flashcards and quizzes really helped me remember them ',
+      author: 'Riya (age 9)',
     },
   ];
 
@@ -80,7 +89,7 @@ export default function LandingPage() {
                 </span>
               </h1>
               <p className="text-lg sm:text-xl text-slate-600 mb-8">
-                Tamil Lens turns your camera into a bilingual teacher—English,{' '}
+                Tamil Lens turns your camera into a bilingual teacher—English,{" "}
                 <span className="font-semibold">தமிழ்</span>, and clear audio.
               </p>
               <div className="flex flex-wrap gap-4">
@@ -108,7 +117,7 @@ export default function LandingPage() {
                 <div className="border-4 border-dashed border-cyan-400 rounded-2xl p-12 sm:p-16 bg-white/50 backdrop-blur-sm flex items-center justify-center">
                   <div className="text-center">
                     <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-4 bg-gradient-to-br from-cyan-500 to-teal-500 rounded-full flex items-center justify-center animate-pulse">
-                      <span className="text-4xl sm:text-5xl">📸</span>
+                      <Camera className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
                     </div>
                     <p className="text-slate-600 font-medium">Point &amp; Learn</p>
                   </div>
@@ -141,7 +150,9 @@ export default function LandingPage() {
                 onMouseEnter={() => setActiveFeature(i)}
               >
                 <div className="bg-white rounded-xl p-6 sm:p-8 h-full">
-                  <div className="text-4xl sm:text-5xl mb-3 sm:mb-4">{f.icon}</div>
+                  <div className="mb-3 sm:mb-4">
+                    <f.Icon className="w-10 h-10 sm:w-12 sm:h-12 text-slate-800" />
+                  </div>
                   <h3 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2">
                     {f.title}
                   </h3>
@@ -167,7 +178,7 @@ export default function LandingPage() {
                     {s.number}
                   </div>
                   <div className="absolute -bottom-2 -right-2 w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full flex items-center justify-center shadow-md">
-                    <span className="text-2xl sm:text-3xl">{s.icon}</span>
+                    <s.Icon className="w-6 h-6 sm:w-8 sm:h-8 text-slate-800" />
                   </div>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2">
@@ -187,26 +198,22 @@ export default function LandingPage() {
             What Learners Say
           </h2>
           <div className="mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 max-w-6xl">
-            {[
-              ...testimonials.map((t, i) => (
-                <div
-                  key={i}
-                  className="bg-gradient-to-br from-slate-50 to-white rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-all"
-                >
-                  <div className="flex gap-1 mb-3 sm:mb-4">
-                    {Array.from({ length: t.stars }).map((_, j) => (
-                      <span key={j} className="text-yellow-400 text-xl sm:text-2xl">
-                        ⭐
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-slate-700 text-base sm:text-lg mb-3 sm:mb-4 italic">
-                    "{t.quote}"
-                  </p>
-                  <p className="text-slate-900 font-semibold">— {t.author}</p>
+            {testimonials.map((t, i) => (
+              <div
+                key={i}
+                className="bg-gradient-to-br from-slate-50 to-white rounded-2xl p-6 sm:p-8 shadow-lg hover:shadow-xl transition-all"
+              >
+                <div className="flex gap-1 mb-3 sm:mb-4" aria-label={`${t.stars} out of 5 stars`}>
+                  {Array.from({ length: t.stars }).map((_, j) => (
+                    <Star key={j} className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-400 fill-yellow-400" />
+                  ))}
                 </div>
-              )),
-            ]}
+                <p className="text-slate-700 text-base sm:text-lg mb-3 sm:mb-4 italic">
+                  "{t.quote}"
+                </p>
+                <p className="text-slate-900 font-semibold">— {t.author}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>

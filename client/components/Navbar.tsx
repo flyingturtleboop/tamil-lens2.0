@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import Container from '../components/Container';
 
 export default function Navbar() {
@@ -19,21 +20,39 @@ export default function Navbar() {
     <nav
       className={[
         'fixed inset-x-0 top-0 z-50 border-b transition-colors',
-        scrolled ? 'bg-white/85 backdrop-blur border-slate-200 shadow-sm' : 'bg-white/60 backdrop-blur border-transparent'
+        scrolled
+          ? 'bg-white/85 backdrop-blur border-slate-200 shadow-sm'
+          : 'bg-white/60 backdrop-blur border-transparent',
       ].join(' ')}
     >
       <Container className="h-16 flex items-center justify-between">
         {/* Brand */}
-        <Link href="/#home" className="flex items-center gap-3 hover:opacity-90 transition" aria-label="Tamil Lens Home">
-          <div className="w-9 h-9 bg-gradient-to-br from-cyan-500 to-teal-500 rounded-lg flex items-center justify-center text-white font-bold">
-            Ta
-          </div>
-          <span className="text-lg sm:text-xl font-bold text-slate-900">Tamil Lens</span>
+        <Link
+          href="/#home"
+          className="flex items-center gap-3 hover:opacity-90 transition"
+          aria-label="Tamil Lens Home"
+        >
+          <Image
+            src="/TamilLens_Square.png"
+            alt="Tamil Lens Logo"
+            width={60}
+            height={60}
+            className="rounded-lg"
+            priority
+          />
+          <span className="text-lg sm:text-xl font-bold text-slate-900">
+            Tamil Lens
+          </span>
         </Link>
 
         {/* Desktop actions */}
         <div className="hidden md:flex items-center gap-6">
-          <Link href="/#home" className="text-slate-700 hover:text-cyan-600 font-medium">Home</Link>
+          <Link
+            href="/#home"
+            className="text-slate-700 hover:text-cyan-600 font-medium"
+          >
+            Home
+          </Link>
           <Link
             href="/auth/signin?mode=signup&next=/scan"
             className="bg-gradient-to-r from-cyan-500 to-teal-500 text-white px-4 py-2 rounded-lg font-semibold hover:shadow-lg hover:scale-105 transition"
@@ -44,7 +63,7 @@ export default function Navbar() {
 
         {/* Mobile toggle */}
         <button
-          onClick={() => setOpen(v => !v)}
+          onClick={() => setOpen((v) => !v)}
           className="md:hidden w-10 h-10 flex flex-col items-center justify-center gap-1.5 hover:bg-slate-100 rounded-lg transition"
           aria-label="Menu"
           aria-expanded={open}
@@ -59,7 +78,11 @@ export default function Navbar() {
       {open && (
         <div className="md:hidden bg-white/95 backdrop-blur border-t border-slate-100">
           <Container className="py-4 flex flex-col gap-3">
-            <Link href="/#home" className="py-2 text-slate-700 hover:text-cyan-600 font-medium" onClick={() => setOpen(false)}>
+            <Link
+              href="/#home"
+              className="py-2 text-slate-700 hover:text-cyan-600 font-medium"
+              onClick={() => setOpen(false)}
+            >
               Home
             </Link>
             <Link
