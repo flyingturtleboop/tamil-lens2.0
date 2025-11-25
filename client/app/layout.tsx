@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { ReactNode } from 'react';
-import { AuthProvider } from '@/context/AuthContext'; // if you wrap context here
+import { AuthProvider } from '@/context/AuthContext';
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();

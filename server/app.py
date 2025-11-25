@@ -1,11 +1,9 @@
 # app.py
 from datetime import timedelta, datetime, date
-import os, io, re, json
-from dotenv import load_dotenv
+import os, io, re, json, logging
 
-# Load environment variables from .env file
+from dotenv import load_dotenv
 load_dotenv()
-print(f"DEBUG: GEMINI_API_KEY = {os.environ.get('GEMINI_API_KEY')[:10]}..." if os.environ.get('GEMINI_API_KEY') else "DEBUG: NO KEY FOUND")
 
 from flask import Flask, request, jsonify, current_app
 from flask_cors import CORS
@@ -15,12 +13,24 @@ from flask_jwt_extended import (
     jwt_required, get_jwt_identity, set_refresh_cookies,
     unset_jwt_cookies, verify_jwt_in_request
 )
-from models import db, User, SavedWord, Achievement
 from PIL import Image
 
+# Optional HEIC/HEIF support if pillow-heif is installed
+try:
+    from pillow_heif import register_heif
+    register_heif()
+except Exception:
+    pass
+
+# Your models are assumed to be in models.py
+from models import db, User, SavedWord, Achievement
+
+# ---------- Helpers ----------
 def ok_image_type(ct):
-    return ct in ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
-                  "application/octet-stream", None)
+    return ct in (
+        "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
+        "application/octet-stream", None
+    )
 
 def compress_to_jpeg_bytes(file_bytes: bytes, max_w: int = 640, quality: int = 72) -> bytes:
     img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
@@ -69,14 +79,11 @@ TRANSLATE_JSON_PROMPT = (
 )
 
 def check_achievements(user):
-    """Check and unlock achievements"""
     achievements_to_unlock = []
-    
-    # First scan
+
     if user.total_scans == 1:
         achievements_to_unlock.append("first_scan")
-    
-    # Word milestones
+
     word_count = SavedWord.query.filter_by(user_id=user.id).count()
     if word_count >= 10:
         achievements_to_unlock.append("words_10")
@@ -86,8 +93,7 @@ def check_achievements(user):
         achievements_to_unlock.append("words_100")
     if word_count >= 200:
         achievements_to_unlock.append("words_200")
-    
-    # Streak milestones
+
     if user.current_streak >= 3:
         achievements_to_unlock.append("streak_3")
     if user.current_streak >= 7:
@@ -96,54 +102,72 @@ def check_achievements(user):
         achievements_to_unlock.append("streak_14")
     if user.current_streak >= 30:
         achievements_to_unlock.append("streak_30")
-    
-    # Quiz milestones
+
     if user.total_quizzes >= 5:
         achievements_to_unlock.append("quiz_5")
     if user.total_quizzes >= 10:
         achievements_to_unlock.append("quiz_10")
     if user.total_quizzes >= 25:
         achievements_to_unlock.append("quiz_25")
-    
-    # Unlock new achievements
+
     for achievement_type in achievements_to_unlock:
         existing = Achievement.query.filter_by(
-            user_id=user.id, 
-            achievement_type=achievement_type
+            user_id=user.id, achievement_type=achievement_type
         ).first()
-        
         if not existing:
-            new_achievement = Achievement(
-                user_id=user.id,
-                achievement_type=achievement_type
-            )
-            db.session.add(new_achievement)
+            db.session.add(Achievement(user_id=user.id, achievement_type=achievement_type))
 
+# ---------- App Factory ----------
 def create_app():
     app = Flask(__name__)
 
+    # Logging
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    app.logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+
+    # Secrets
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
     app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "dev-jwt-secret-change-me")
 
+    # JWT in headers and cookies
     app.config["JWT_TOKEN_LOCATION"] = ["headers", "cookies"]
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=60)
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=30)
 
-    app.config["JWT_COOKIE_SECURE"] = False
-    app.config["JWT_COOKIE_SAMESITE"] = "Lax"
-    app.config["JWT_COOKIE_CSRF_PROTECT"] = False
+    # Cookie security: turn on in production
+    is_production = os.environ.get("RENDER", "") or os.environ.get("FLASK_ENV") == "production"
+    app.config["JWT_COOKIE_SECURE"] = bool(is_production)
+    app.config["JWT_COOKIE_SAMESITE"] = "Lax"  # adjust to "None" if you serve API on api.tamillens.org and use cross-site cookies
+    app.config["JWT_COOKIE_CSRF_PROTECT"] = False  # using Authorization header for access tokens
 
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///app.db")
+    # Database URL normalization: postgres -> postgresql
+    raw_db_url = os.environ.get("DATABASE_URL", "sqlite:///app.db")
+    if raw_db_url.startswith("postgres://"):
+        raw_db_url = raw_db_url.replace("postgres://", "postgresql://", 1)
+    app.config["SQLALCHEMY_DATABASE_URI"] = raw_db_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    db.init_app(app)
 
+    db.init_app(app)
     Migrate(app, db)
 
-    FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
-    CORS(app, resources={r"/*": {"origins": [FRONTEND_ORIGIN]}}, supports_credentials=True)
+    # CORS
+    # Your primary domain
+    default_frontend = "https://tamillens.org"
+    # Accept both apex and www plus local dev
+    allowed_origins = list({
+        os.environ.get("FRONTEND_ORIGIN", default_frontend),
+        "https://tamillens.org",
+        "https://www.tamillens.org",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    })
+    CORS(app, resources={r"/*": {"origins": allowed_origins}}, supports_credentials=True)
 
     JWTManager(app)
 
+    # Gemini setup
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
     GEMINI_API_VERSION = os.environ.get("GEMINI_API_VERSION", "v1beta")
     GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-2.0-flash")
@@ -157,19 +181,21 @@ def create_app():
             genai_client = genai.Client(
                 http_options=types.HttpOptions(api_version=GEMINI_API_VERSION)
             )
-            print(f"[Gemini] Using API {GEMINI_API_VERSION}, model {GEMINI_VISION_MODEL}")
+            app.logger.info(f"[Gemini] Using API {GEMINI_API_VERSION}, model {GEMINI_VISION_MODEL}")
         else:
-            print("[Gemini] WARNING: GEMINI_API_KEY not set. /api/identify will return 502.")
+            app.logger.warning("[Gemini] GEMINI_API_KEY not set. /api/identify and /api/translate will return 502.")
     except Exception as e:
-        print("[Gemini] Init failed:", e)
+        app.logger.error("[Gemini] Init failed: %s", e)
 
     app.config["GENAI_CLIENT"] = genai_client
     app.config["GEMINI_VISION_MODEL"] = GEMINI_VISION_MODEL
 
+    # Auto-create DB tables if enabled
     if os.environ.get("AUTO_CREATE_DB", "1") == "1":
         with app.app_context():
             db.create_all()
 
+    # ---------- Error Handlers ----------
     @app.errorhandler(400)
     def bad_request(e):
         return jsonify({"message": "Bad request", "detail": str(e)}), 400
@@ -186,11 +212,16 @@ def create_app():
     def server_error(e):
         return jsonify({"message": "Internal server error", "detail": str(e)}), 500
 
+    # ---------- Health ----------
+    @app.get("/health")
+    def health():
+        return {"ok": True}, 200
+
     @app.get("/healthz")
     def healthz():
         return {"ok": True}, 200
 
-    # ========== AUTH ==========
+    # ---------- AUTH ----------
     @app.post("/auth/register")
     def register():
         data = request.get_json(silent=True) or {}
@@ -238,6 +269,7 @@ def create_app():
         if not u:
             return jsonify({"message": "Not found"}), 404
         return jsonify({"user": u.to_safe_dict()}), 200
+
     @app.put("/auth/update-profile")
     @jwt_required()
     def update_profile():
@@ -245,28 +277,24 @@ def create_app():
         user = User.query.get(uid)
         if not user:
             return jsonify({"message": "User not found"}), 404
-        
+
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         email = (data.get("email") or "").strip().lower()
-        
+
         if not name or not email:
             return jsonify({"message": "Name and email required"}), 400
-        
-        # Check if email is already taken by another user
+
         if email != user.email:
             existing = User.query.filter_by(email=email).first()
             if existing:
                 return jsonify({"message": "Email already in use"}), 409
-        
+
         user.name = name
         user.email = email
         db.session.commit()
-        
-        return jsonify({
-            "message": "Profile updated",
-            "user": user.to_safe_dict()
-        }), 200
+
+        return jsonify({"message": "Profile updated", "user": user.to_safe_dict()}), 200
 
     @app.put("/auth/update-password")
     @jwt_required()
@@ -275,28 +303,27 @@ def create_app():
         user = User.query.get(uid)
         if not user:
             return jsonify({"message": "User not found"}), 404
-        
+
         data = request.get_json(silent=True) or {}
         current_password = data.get("currentPassword") or ""
         new_password = data.get("newPassword") or ""
-        
+
         if not current_password or not new_password:
             return jsonify({"message": "Current and new password required"}), 400
-        
-        # Verify current password
+
         if not user.check_password(current_password):
             return jsonify({"message": "Current password is incorrect"}), 401
-        
-        # Validate new password
+
         if len(new_password) < 8:
             return jsonify({"message": "Password must be at least 8 characters"}), 400
-        
+
         try:
             user.set_password(new_password)
             db.session.commit()
             return jsonify({"message": "Password updated successfully"}), 200
         except ValueError as e:
             return jsonify({"message": str(e)}), 400
+
     @app.post("/auth/refresh")
     @jwt_required(refresh=True, locations=["cookies"])
     def refresh():
@@ -317,7 +344,7 @@ def create_app():
         user = User.query.get(uid)
         return jsonify({"hello": (user.email if user else uid), "msg": "You have access."}), 200
 
-    # ========== WORD BANK ==========
+    # ---------- WORD BANK ----------
     DEFAULT_BANK_COUNT = int(os.environ.get("DEFAULT_BANK_COUNT", "103"))
 
     @app.get("/api/bank")
@@ -364,13 +391,12 @@ def create_app():
         row = SavedWord(user_id=uid, english=english, tamil=tamil, transliteration=translit)
         db.session.add(row)
         db.session.commit()
-        
-        # Check achievements
+
         user = User.query.get(uid)
         if user:
             check_achievements(user)
             db.session.commit()
-        
+
         return jsonify({"status": "added", "id": row.id}), 201
 
     @app.delete("/api/bank/<int:wid>")
@@ -384,7 +410,7 @@ def create_app():
         db.session.commit()
         return jsonify({"status": "deleted"}), 200
 
-    # ========== STREAK & STATS ==========
+    # ---------- STREAK & STATS ----------
     @app.get("/api/stats")
     @jwt_required()
     def get_stats():
@@ -392,22 +418,20 @@ def create_app():
         user = User.query.get(uid)
         if not user:
             return jsonify({"message": "User not found"}), 404
-        
+
         word_count = SavedWord.query.filter_by(user_id=uid).count()
         achievements = Achievement.query.filter_by(user_id=uid).all()
-        
-        # Calculate accuracy from flashcard reviews
+
+        from sqlalchemy import func
         words_with_reviews = SavedWord.query.filter(
             SavedWord.user_id == uid,
             SavedWord.review_count > 0
         ).all()
-        
+
         total_reviews = sum(w.review_count for w in words_with_reviews)
         total_correct = sum(w.correct_count for w in words_with_reviews)
         accuracy = round((total_correct / total_reviews * 100) if total_reviews > 0 else 0)
-        
-        # Get words learned per week (last 12 weeks)
-        from sqlalchemy import func
+
         weeks_data = db.session.query(
             func.strftime('%Y-%W', SavedWord.created_at).label('week'),
             func.count(SavedWord.id).label('count')
@@ -415,9 +439,9 @@ def create_app():
             SavedWord.user_id == uid,
             SavedWord.created_at >= datetime.utcnow() - timedelta(weeks=12)
         ).group_by('week').order_by('week').all()
-        
+
         weekly_progress = [{"week": w.week, "words": w.count} for w in weeks_data]
-        
+
         return jsonify({
             "currentStreak": user.current_streak,
             "longestStreak": user.longest_streak,
@@ -437,12 +461,12 @@ def create_app():
         user = User.query.get(uid)
         if not user:
             return jsonify({"message": "User not found"}), 404
-        
+
         user.total_scans += 1
         user.update_streak()
         check_achievements(user)
         db.session.commit()
-        
+
         return jsonify({
             "currentStreak": user.current_streak,
             "totalScans": user.total_scans
@@ -455,24 +479,24 @@ def create_app():
         user = User.query.get(uid)
         if not user:
             return jsonify({"message": "User not found"}), 404
-        
+
         user.total_quizzes += 1
         user.update_streak()
         check_achievements(user)
         db.session.commit()
-        
+
         return jsonify({
             "currentStreak": user.current_streak,
             "totalQuizzes": user.total_quizzes
         }), 200
 
-    # ========== FLASHCARD REVIEW ==========
+    # ---------- FLASHCARD REVIEW ----------
     @app.get("/api/flashcards/due")
     @jwt_required()
     def get_due_flashcards():
         uid = get_jwt_identity()
         now = datetime.utcnow()
-        
+
         words = SavedWord.query.filter(
             SavedWord.user_id == uid,
             db.or_(
@@ -480,7 +504,7 @@ def create_app():
                 SavedWord.next_review <= now
             )
         ).order_by(SavedWord.difficulty.desc()).limit(20).all()
-        
+
         return jsonify({
             "flashcards": [w.to_dict() for w in words],
             "total": len(words)
@@ -492,14 +516,14 @@ def create_app():
         uid = get_jwt_identity()
         data = request.get_json(silent=True) or {}
         correct = data.get("correct", False)
-        
+
         word = SavedWord.query.filter_by(id=word_id, user_id=uid).first()
         if not word:
             return jsonify({"message": "Word not found"}), 404
-        
+
         word.review_count += 1
         word.last_reviewed = datetime.utcnow()
-        
+
         if correct:
             word.correct_count += 1
             if word.difficulty > 0:
@@ -509,20 +533,20 @@ def create_app():
             if word.difficulty < 3:
                 word.difficulty += 1
             word.next_review = datetime.utcnow() + timedelta(hours=4)
-        
+
         db.session.commit()
-        
+
         user = User.query.get(uid)
         if user:
             user.update_streak()
             db.session.commit()
-        
+
         return jsonify({
             "status": "reviewed",
             "nextReview": word.next_review.isoformat() if word.next_review else None
         }), 200
 
-    # ========== AI IDENTIFY ==========
+    # ---------- AI IDENTIFY ----------
     @app.post("/api/identify")
     def api_identify():
         genai_client = current_app.config.get("GENAI_CLIENT")
@@ -579,7 +603,6 @@ def create_app():
                 except Exception:
                     pass
 
-            # Log scan activity if authenticated
             try:
                 verify_jwt_in_request(optional=True)
                 uid = get_jwt_identity()
@@ -590,7 +613,7 @@ def create_app():
                         user.update_streak()
                         check_achievements(user)
                         db.session.commit()
-            except:
+            except Exception:
                 pass
 
             return jsonify({
@@ -602,10 +625,10 @@ def create_app():
             })
 
         except Exception as e:
-            print("[/api/identify ERROR]", e)
+            current_app.logger.error("[/api/identify ERROR] %s", e)
             return jsonify({"detail": f"Vision error: {e}"}), 502
 
-    # ========== AI TRANSLATE ==========
+    # ---------- AI TRANSLATE ----------
     @app.post("/api/translate")
     def api_translate():
         genai_client = current_app.config.get("GENAI_CLIENT")
@@ -616,7 +639,7 @@ def create_app():
 
         data = request.get_json(silent=True) or {}
         text = (data.get("text") or "").strip()
-        
+
         if not text:
             return jsonify({"detail": "Missing 'text' field"}), 400
 
@@ -632,16 +655,16 @@ def create_app():
                     temperature=0.1, candidate_count=1, max_output_tokens=120
                 ),
             )
-            
+
             result = extract_json_loose(resp.text or "{}")
-            
+
             tamil = (result.get("tamil") or "").strip()
             translit = (result.get("transliteration") or "").strip()
             english = (result.get("english") or text).strip()
-            
+
             if not tamil:
                 return jsonify({"detail": "Translation failed - no Tamil output"}), 500
-            
+
             return jsonify({
                 "tamil": tamil,
                 "transliteration": translit,
@@ -650,7 +673,7 @@ def create_app():
             })
 
         except Exception as e:
-            print("[/api/translate ERROR]", e)
+            current_app.logger.error("[/api/translate ERROR] %s", e)
             return jsonify({"detail": f"Translation error: {e}"}), 502
 
     return app
@@ -658,4 +681,5 @@ def create_app():
 app = create_app()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # On Render, gunicorn will run this module. This branch is for local dev.
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)

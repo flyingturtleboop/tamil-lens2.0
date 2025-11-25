@@ -1,0 +1,74 @@
+name: Deploy client to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'client/**'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Debug repo layout
+        run: |
+          pwd
+          ls -la
+          echo "---- client dir ----"
+          ls -la client || true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps (ci if lockfile present, else install)
+        working-directory: client
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "No package-lock.json, using npm install"
+            npm install
+          fi
+
+      - name: Build static export (Next 15)
+        working-directory: client
+        env:
+          NODE_ENV: production
+        run: npm run build   # emits client/out via next.config.ts (output:'export')
+
+      - name: Ensure out has index.html
+        run: |
+          ls -la client/out
+          test -f client/out/index.html
+
+      - name: Add CNAME for custom domain
+        run: echo tamillens.org > client/out/CNAME
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
