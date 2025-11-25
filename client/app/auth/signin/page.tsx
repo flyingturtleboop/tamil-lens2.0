@@ -116,7 +116,10 @@ function SignInContent() {
         localStorage.setItem('user_name', data.user.name);
       } else if (data?.user?.email) {
         const guessed = data.user.email.split('@')[0];
-        localStorage.setItem('user_name', guessed.charAt(0).toUpperCase() + guessed.slice(1));
+        localStorage.setItem(
+          'user_name',
+          guessed.charAt(0).toUpperCase() + guessed.slice(1)
+        );
       }
 
       router.replace(nextUrl);
@@ -130,9 +133,9 @@ function SignInContent() {
   };
 
   return (
-    <div className="min-h-screen grid md:grid-cols-2 bg-white">
+    <div className="min-h-screen bg-white grid grid-cols-1 md:grid-cols-2">
       {/* Left gradient panel */}
-      <div className="relative hidden md:block">
+      <div className="relative block">
         <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 via-teal-500 to-emerald-400" />
         <div className="absolute inset-0 bg-white/5" />
         <svg className="absolute inset-0 w-full h-full opacity-25" preserveAspectRatio="none">
@@ -153,7 +156,7 @@ function SignInContent() {
           ))}
         </svg>
 
-        <div className="relative h-full min-h-screen flex items-center justify-center px-10">
+        <div className="relative h-full min-h-[60vh] md:min-h-screen flex items-center justify-center px-10">
           <div className="max-w-md text-white">
             <div className="inline-flex items-center gap-3 bg-white/15 rounded-xl px-3 py-2 mb-6 backdrop-blur-sm">
               <span className="text-xl">👋</span>
@@ -165,7 +168,9 @@ function SignInContent() {
             <p className="mt-5 text-white/90 text-lg leading-relaxed">
               Point, hear, and practice with spaced repetition. Get productive with Tamil fast.
             </p>
-            <p className="mt-12 text-sm text-white/80">© {new Date().getFullYear()} Tamil Lens</p>
+            <p className="mt-12 text-sm text-white/80">
+              © {new Date().getFullYear()} Tamil Lens
+            </p>
           </div>
         </div>
       </div>
@@ -194,7 +199,7 @@ function SignInContent() {
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-slate-900 placeholder:text-slate-400"
                   placeholder="Tamil Learner"
                   autoComplete="name"
                 />
@@ -211,7 +216,7 @@ function SignInContent() {
                 required
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-slate-900 placeholder:text-slate-400"
                 placeholder="you@example.com"
                 autoComplete="email"
               />
@@ -227,7 +232,7 @@ function SignInContent() {
                 required
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-slate-900 placeholder:text-slate-400"
                 placeholder="••••••••"
                 autoComplete={isSignUp ? 'new-password' : 'current-password'}
               />
@@ -235,7 +240,10 @@ function SignInContent() {
 
             {isSignUp && (
               <div>
-                <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-800">
+                <label
+                  htmlFor="confirmPassword"
+                  className="block text-sm font-medium text-slate-800"
+                >
                   Confirm password
                 </label>
                 <input
@@ -243,8 +251,10 @@ function SignInContent() {
                   type="password"
                   required
                   value={formData.confirmPassword}
-                  onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                  className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  onChange={(e) =>
+                    setFormData({ ...formData, confirmPassword: e.target.value })
+                  }
+                  className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-slate-900 placeholder:text-slate-400"
                   placeholder="••••••••"
                   autoComplete="new-password"
                 />
@@ -258,7 +268,9 @@ function SignInContent() {
                     type="checkbox"
                     className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
                     checked={formData.remember}
-                    onChange={(e) => setFormData({ ...formData, remember: e.target.checked })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, remember: e.target.checked })
+                    }
                   />
                   Remember for 30 days
                 </label>
@@ -288,7 +300,7 @@ function SignInContent() {
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-300"></div>
+                <div className="w-full border-t border-slate-300" />
               </div>
               <div className="relative flex justify-center text-sm">
                 <span className="px-2 bg-white text-slate-500">Or continue with</span>
@@ -300,11 +312,24 @@ function SignInContent() {
               onClick={() => setError("Google sign-in isn't configured yet.")}
               className="w-full rounded-md border border-slate-300 bg-white text-slate-700 py-2.5 font-semibold hover:bg-slate-50 transition flex items-center justify-center gap-2"
             >
+              {/* Google icon */}
               <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                <path
+                  fill="#4285F4"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                />
               </svg>
               Sign in with Google
             </button>
@@ -317,7 +342,13 @@ function SignInContent() {
               onClick={() => {
                 setIsSignUp((v) => !v);
                 setError('');
-                setFormData({ name: '', email: '', password: '', confirmPassword: '', remember: true });
+                setFormData({
+                  name: '',
+                  email: '',
+                  password: '',
+                  confirmPassword: '',
+                  remember: true,
+                });
               }}
             >
               {isSignUp ? 'Sign in' : 'Create one'}
