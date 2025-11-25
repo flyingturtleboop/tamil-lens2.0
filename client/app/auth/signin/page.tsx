@@ -168,9 +168,6 @@ function SignInContent() {
             <p className="mt-5 text-white/90 text-lg leading-relaxed">
               Point, hear, and practice with spaced repetition. Get productive with Tamil fast.
             </p>
-            <p className="mt-12 text-sm text-white/80">
-              © {new Date().getFullYear()} Tamil Lens
-            </p>
           </div>
         </div>
       </div>
