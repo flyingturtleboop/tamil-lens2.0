@@ -57,13 +57,13 @@ export default function LandingPage() {
       stars: 5,
       quote:
         'The students have been much more engaged in learning Tamil with the app. They love scanning objects and hearing the pronunciation.',
-      author: 'Ms. Deepa',
+      author: 'Ms. Lakshmi',
     },
     {
       stars: 5,
       quote:
         'I learned a lot of new words scanning things at home. The flashcards and quizzes really helped me remember them ',
-      author: 'Riya (age 9)',
+      author: 'Sanjay (age 9)',
     },
   ];
 

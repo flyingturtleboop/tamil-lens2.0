@@ -61,10 +61,6 @@ export default function Footer() {
           </div>
         </div>
       </div>
-
-      <div className="max-w-7xl mx-auto mt-8 pt-8 border-t border-slate-800 text-center text-slate-400">
-        © {year} Tamil Lens. All rights reserved.
-      </div>
     </footer>
   );
 }
