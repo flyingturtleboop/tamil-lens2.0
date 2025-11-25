@@ -1,5 +1,6 @@
 // Single base, exported (use either NEXT_PUBLIC_SCAN_API or NEXT_PUBLIC_API_BASE)
 export const API_BASE = (
+  process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_SCAN_API ||
   process.env.NEXT_PUBLIC_API_BASE ||
   "http://localhost:5000"
