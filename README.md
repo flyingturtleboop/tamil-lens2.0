@@ -10,6 +10,8 @@
 
 **AI language learning app that makes Tamil vocabulary practice interactive through object scanning, translations, transliterations, flashcards, quizzes, streaks, and classroom-focused learning tools.**
 
+**Demo:** [Watch the Tamil Lens demo](https://youtu.be/yzQfq7iNGYg?si=zAxOZHbuRC3oeV_Z)
+
 </div>
 
 ---
@@ -26,19 +28,17 @@ I am also partnering with local Tamil schools to explore how Tamil Lens can make
 
 ## Core Workflow
 
-```text
-User scans object
-        ↓
-Image sent to backend
-        ↓
-AI vision model identifies object
-        ↓
-App returns English + Tamil + transliteration
-        ↓
-Word is saved to personal word bank
-        ↓
-User practices with flashcards, quizzes, and streak tracking
-```
+User scans object  
+↓  
+Image sent to backend  
+↓  
+AI vision model identifies object  
+↓  
+App returns English + Tamil + transliteration  
+↓  
+Word is saved to personal word bank  
+↓  
+User practices with flashcards, quizzes, and streak tracking  
 
 ---
 
@@ -90,21 +90,19 @@ The goal is to make language learning feel less like memorizing a list and more 
 
 ## System Architecture
 
-```text
-Next.js + React Frontend
-        ↓
-Image Upload / API Request
-        ↓
-Flask Backend
-        ↓
-Gemini Vision Object Identification
-        ↓
-Translation + Transliteration Response
-        ↓
-SQLAlchemy Database
-        ↓
-Word Bank / Flashcards / Quizzes / Stats
-```
+Next.js + React Frontend  
+↓  
+Image Upload / API Request  
+↓  
+Flask Backend  
+↓  
+Gemini Vision Object Identification  
+↓  
+Translation + Transliteration Response  
+↓  
+SQLAlchemy Database  
+↓  
+Word Bank / Flashcards / Quizzes / Stats  
 
 ---
 
@@ -210,94 +208,3 @@ It tracks:
 ```bash
 git clone https://github.com/psamin/tamil-lens2.0.git
 cd tamil-lens2.0
-```
-
-### 2. Set up the frontend
-
-```bash
-npm install
-npm run dev
-```
-
-Frontend runs at:
-
-```text
-http://localhost:3000
-```
-
-### 3. Set up the backend
-
-Open a new terminal and go into the backend folder if your project has one:
-
-```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-flask run
-```
-
-On Windows:
-
-```bash
-cd backend
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-flask run
-```
-
-Backend usually runs at:
-
-```text
-http://localhost:5000
-```
-
----
-
-## Environment Variables
-
-Create a `.env` file for backend configuration.
-
-```env
-GEMINI_API_KEY=your_gemini_api_key
-JWT_SECRET_KEY=your_jwt_secret_key
-DATABASE_URL=sqlite:///app.db
-FRONTEND_ORIGIN=http://localhost:3000
-```
-
-Adjust names based on your actual backend config.
-
----
-
-## Results / Impact
-
-| Area | Detail |
-|---|---|
-| Product | Built an AI-powered Tamil learning platform |
-| AI Workflow | Object image → AI identification → Tamil translation/transliteration |
-| Learning Tools | Flashcards, quizzes, streaks, achievements, and stats |
-| Community | Partnering with local Tamil schools to test interactive vocabulary learning |
-| Focus | Making language learning more engaging through real-world scanning |
-
----
-
-## What I Learned
-
-Tamil Lens helped me practice building a full-stack AI product around a real education problem.
-
-Key skills practiced:
-
-- Building a Next.js / React frontend
-- Designing Flask API routes
-- Integrating Gemini Vision for image-based learning
-- Managing user vocabulary data with SQLAlchemy
-- Implementing JWT-based authentication
-- Building flashcards, quizzes, streaks, and achievements
-- Designing an app for real students and classroom use
-
----
-
-## Repository
-
-https://github.com/psamin/tamil-lens2.0
