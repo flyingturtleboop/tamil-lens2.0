@@ -10,7 +10,7 @@
 
 **AI language learning app that makes Tamil vocabulary practice interactive through object scanning, translations, transliterations, flashcards, quizzes, streaks, and classroom-focused learning tools.**
 
-**Demo:** [Watch the Tamil Lens demo](https://youtu.be/yzQfq7iNGYg?si=zAxOZHbuRC3oeV_Z)
+**Demo:** [Watch the Tamil Lens demo (Named Language Lens Previously)](https://youtu.be/yzQfq7iNGYg?si=zAxOZHbuRC3oeV_Z)
 
 </div>
 
